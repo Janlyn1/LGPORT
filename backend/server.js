@@ -13,6 +13,38 @@ const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
 const googleClient = googleClientId ? new OAuth2Client(googleClientId) : null;
 const defaultUserEmail = process.env.DEFAULT_USER_EMAIL || "janlynrustila01@gmail.com";
 const publicAccess = process.env.PUBLIC_ACCESS !== "false";
+const tiktokResearchClientKey =
+  process.env.TIKTOK_RESEARCH_CLIENT_KEY || process.env.TIKTOK_CLIENT_KEY || "";
+const tiktokResearchClientSecret =
+  process.env.TIKTOK_RESEARCH_CLIENT_SECRET || process.env.TIKTOK_CLIENT_SECRET || "";
+const tiktokResearchKeywords = (
+  process.env.TIKTOK_RESEARCH_KEYWORDS ||
+  "beauty,skincare,haircare,makeup,cosmetics,self care,personal care,lifestyle,wellness,grwm"
+)
+  .split(",")
+  .map((item) => item.trim())
+  .filter(Boolean)
+  .slice(0, 20);
+const tiktokResearchLookbackDays = Math.max(
+  1,
+  Math.min(Number(process.env.TIKTOK_RESEARCH_LOOKBACK_DAYS || 7), 30),
+);
+const tiktokResearchMaxTotal = Math.max(
+  20,
+  Math.min(Number(process.env.TIKTOK_RESEARCH_MAX_TOTAL || 300), 1000),
+);
+const tiktokResearchMaxUsers = Math.max(
+  10,
+  Math.min(Number(process.env.TIKTOK_RESEARCH_MAX_USERS || 100), 300),
+);
+const tiktokResearchMinFollowers = Math.max(
+  0,
+  Number(process.env.TIKTOK_RESEARCH_MIN_FOLLOWERS || 2000),
+);
+const tiktokResearchMaxFollowers = Math.max(
+  tiktokResearchMinFollowers,
+  Number(process.env.TIKTOK_RESEARCH_MAX_FOLLOWERS || 20000),
+);
 
 const allowedCategories = [
   "Beauty",
@@ -387,6 +419,14 @@ const memory = {
   savedByEmail: new Map(),
   skippedByEmail: new Map(),
   logsByEmail: new Map(),
+  providerCreators: [],
+  providerVideosScanned: 0,
+  providerUpdatedAt: "",
+};
+
+const tiktokTokenCache = {
+  accessToken: "",
+  expiresAt: 0,
 };
 
 app.use(express.json({ limit: "1mb" }));
@@ -583,6 +623,47 @@ async function appendRow(title, row) {
   });
 }
 
+function creatorToAllCreatorsRow(creator) {
+  const row = normalizeCreator(creator);
+  return [
+    row.creatorId,
+    row.name,
+    row.username,
+    row.tiktokLink,
+    row.followers,
+    row.following,
+    row.likes,
+    row.category,
+    row.email,
+    row.location,
+    row.state,
+    "United States",
+    row.bio,
+    row.website,
+    row.instagram,
+    row.youtube,
+    row.profilePicture,
+    row.lastUpdated,
+  ];
+}
+
+async function replaceAllCreators(creators) {
+  if (!sheetsEnabled() || !creators.length) return false;
+  const sheets = await sheetsClient();
+  await ensureSheet("All Creators", creatorHeaders);
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId,
+    range: "'All Creators'!A2:R",
+  });
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: "'All Creators'!A1:R",
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [creatorHeaders, ...creators.map(creatorToAllCreatorsRow)] },
+  });
+  return true;
+}
+
 function normalizeCreator(input = {}) {
   const username = clean(input.username || input.tiktokUsername || input.handle)
     .replace(/^@/, "")
@@ -635,6 +716,238 @@ function detectCategory(text = "") {
   ];
   const match = rules.find(([, keywords]) => keywords.some((keyword) => value.includes(keyword)));
   return match?.[0] || "Beauty";
+}
+
+function tiktokResearchConfigured() {
+  return Boolean(tiktokResearchClientKey && tiktokResearchClientSecret);
+}
+
+function dateStamp(date) {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}${month}${day}`;
+}
+
+function tiktokErrorMessage(payload, fallback) {
+  if (!payload || typeof payload !== "object") return fallback;
+  return (
+    payload.error_description ||
+    payload.error?.message ||
+    payload.error?.code ||
+    payload.message ||
+    fallback
+  );
+}
+
+async function tiktokClientAccessToken() {
+  if (!tiktokResearchConfigured()) {
+    throw new Error("TikTok Research API credentials are not configured.");
+  }
+  if (tiktokTokenCache.accessToken && tiktokTokenCache.expiresAt > Date.now() + 60000) {
+    return tiktokTokenCache.accessToken;
+  }
+
+  const body = new URLSearchParams({
+    client_key: tiktokResearchClientKey,
+    client_secret: tiktokResearchClientSecret,
+    grant_type: "client_credentials",
+  });
+  const response = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Cache-Control": "no-cache",
+    },
+    body,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.access_token) {
+    throw new Error(tiktokErrorMessage(payload, "Unable to get TikTok client access token."));
+  }
+  tiktokTokenCache.accessToken = payload.access_token;
+  tiktokTokenCache.expiresAt = Date.now() + Math.max(60, Number(payload.expires_in || 7200) - 120) * 1000;
+  return tiktokTokenCache.accessToken;
+}
+
+async function tiktokResearchPost(path, fields, body) {
+  const token = await tiktokClientAccessToken();
+  const url = `https://open.tiktokapis.com${path}?fields=${encodeURIComponent(fields)}`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || (payload.error?.code && payload.error.code !== "ok")) {
+    throw new Error(tiktokErrorMessage(payload, "TikTok Research API request failed."));
+  }
+  return payload.data || payload;
+}
+
+function tiktokVideoQuery() {
+  const keywordConditions = tiktokResearchKeywords.map((keyword) => ({
+    operation: "EQ",
+    field_name: "keyword",
+    field_values: [keyword],
+  }));
+
+  return {
+    and: [
+      {
+        operation: "IN",
+        field_name: "region_code",
+        field_values: ["US"],
+      },
+    ],
+    or: keywordConditions,
+  };
+}
+
+async function queryTikTokVideos() {
+  const fields = [
+    "id",
+    "video_description",
+    "create_time",
+    "region_code",
+    "share_count",
+    "view_count",
+    "like_count",
+    "comment_count",
+    "hashtag_names",
+    "username",
+  ].join(",");
+  const end = new Date();
+  const start = new Date(end);
+  start.setUTCDate(end.getUTCDate() - tiktokResearchLookbackDays);
+  const videos = [];
+  let cursor = 0;
+  let searchId = "";
+  let hasMore = true;
+  let page = 0;
+
+  while (hasMore && videos.length < tiktokResearchMaxTotal && page < 10) {
+    page += 1;
+    const body = {
+      query: tiktokVideoQuery(),
+      max_count: Math.min(100, tiktokResearchMaxTotal - videos.length),
+      cursor,
+      start_date: dateStamp(start),
+      end_date: dateStamp(end),
+      is_random: false,
+      ...(searchId ? { search_id: searchId } : {}),
+    };
+    const data = await tiktokResearchPost("/v2/research/video/query/", fields, body);
+    const pageVideos = Array.isArray(data.videos) ? data.videos : [];
+    videos.push(...pageVideos);
+    cursor = Number(data.cursor || cursor + pageVideos.length);
+    searchId = clean(data.search_id) || searchId;
+    hasMore = Boolean(data.has_more) && pageVideos.length > 0;
+  }
+
+  return videos;
+}
+
+async function queryTikTokUser(username) {
+  const fields = [
+    "display_name",
+    "bio_description",
+    "avatar_url",
+    "is_verified",
+    "follower_count",
+    "following_count",
+    "likes_count",
+    "video_count",
+    "bio_url",
+  ].join(",");
+  const data = await tiktokResearchPost("/v2/research/user/info/", fields, { username });
+  return data.user_info || data.user || data;
+}
+
+function tiktokCreatorFromUser(username, user, videos) {
+  const relatedVideos = videos.filter((video) => clean(video.username).toLowerCase() === username);
+  const hashtags = relatedVideos.flatMap((video) => (Array.isArray(video.hashtag_names) ? video.hashtag_names : []));
+  const text = [
+    user.bio_description,
+    ...relatedVideos.map((video) => video.video_description),
+    ...hashtags,
+  ].join(" ");
+  const followerCount = Number(user.follower_count || 0);
+  const followingCount = Number(user.following_count || 0);
+  const likesCount = Number(user.likes_count || 0);
+
+  return normalizeCreator({
+    creatorId: `TT-${username}`,
+    name: clean(user.display_name) || username,
+    username,
+    tiktokLink: `https://www.tiktok.com/@${username}`,
+    followers: formatFollowers(followerCount),
+    followerCount,
+    following: followingCount ? formatFollowers(followingCount) : "",
+    followingCount,
+    likes: likesCount ? formatFollowers(likesCount) : "",
+    likesCount,
+    category: detectCategory(text),
+    email: "",
+    location: "",
+    city: "",
+    state: "",
+    country: "United States",
+    bio: clean(user.bio_description),
+    website: clean(user.bio_url),
+    instagram: "",
+    youtube: "",
+    profilePicture: clean(user.avatar_url),
+    lastUpdated: new Date().toISOString().slice(0, 10),
+    confidence: user.is_verified ? 99 : 90,
+  });
+}
+
+async function refreshTikTokResearchCreators() {
+  if (!tiktokResearchConfigured()) {
+    throw new Error("TikTok Research API credentials are not configured.");
+  }
+
+  const videos = await queryTikTokVideos();
+  const usernames = [
+    ...new Set(
+      videos
+        .map((video) => clean(video.username).replace(/^@/, "").toLowerCase())
+        .filter(Boolean),
+    ),
+  ].slice(0, tiktokResearchMaxUsers);
+  const creatorsByKey = new Map();
+
+  for (const username of usernames) {
+    try {
+      const user = await queryTikTokUser(username);
+      const creator = tiktokCreatorFromUser(username, user, videos);
+      if (
+        creator.followerCount >= tiktokResearchMinFollowers &&
+        creator.followerCount <= tiktokResearchMaxFollowers &&
+        allowedCategories.includes(creator.category)
+      ) {
+        creatorsByKey.set(duplicateKey(creator), creator);
+      }
+    } catch (error) {
+      console.warn(`Unable to load TikTok user @${username}: ${error.message}`);
+    }
+  }
+
+  memory.providerCreators = [...creatorsByKey.values()];
+  memory.providerVideosScanned = videos.length;
+  memory.providerUpdatedAt = new Date().toISOString();
+  const sheetSynced = await replaceAllCreators(memory.providerCreators);
+  return {
+    creators: memory.providerCreators,
+    videosScanned: videos.length,
+    usernamesScanned: usernames.length,
+    updatedAt: memory.providerUpdatedAt,
+    sheetSynced,
+  };
 }
 
 function creatorToSheetRow(creator, userEmail, status = "Saved") {
@@ -759,6 +1072,7 @@ async function authorizeEmail(email) {
 }
 
 async function allRawCreators() {
+  if (memory.providerCreators.length) return memory.providerCreators;
   if (!sheetsEnabled()) return sampleCreators;
   const rows = await values("'All Creators'!A:R");
   const mapped = mapSheetCreators(rows);
@@ -870,7 +1184,9 @@ app.get("/api/health", (_request, response) => {
     spreadsheetId,
     googleLoginConfigured: Boolean(googleClientId),
     publicAccess,
-    providerConfigured: Boolean(process.env.CREATOR_DATA_PROVIDER_API_KEY),
+    providerConfigured: tiktokResearchConfigured(),
+    provider: "tiktok-research-api",
+    providerUpdatedAt: memory.providerUpdatedAt,
   });
 });
 
@@ -914,7 +1230,12 @@ app.get("/api/creators", requireUser, requireAdmin, async (request, response) =>
       categories: allowedCategories,
       states: [...new Set(all.map((creator) => creator.state).filter(Boolean))].sort(),
       statuses: savedStatuses,
-      source: process.env.CREATOR_DATA_PROVIDER_API_KEY ? "provider-ready" : "starter-dataset",
+      source: memory.providerCreators.length
+        ? "tiktok-research-api"
+        : tiktokResearchConfigured()
+          ? "tiktok-ready"
+          : "starter-dataset",
+      providerUpdatedAt: memory.providerUpdatedAt,
     });
   } catch (error) {
     response.status(500).json({ error: error.message });
@@ -1003,12 +1324,33 @@ app.get("/api/admin", requireUser, requireAdmin, async (request, response) => {
 });
 
 app.post("/api/provider/refresh", requireUser, requireAdmin, async (request, response) => {
-  logActivity(request.user.email, "Provider Refresh", "Refresh requested");
-  response.json({
-    ok: true,
-    mode: process.env.CREATOR_DATA_PROVIDER_API_KEY ? "provider-ready" : "starter-dataset",
-    note: "Connect an approved TikTok creator data provider API key to enable automatic refresh.",
-  });
+  try {
+    if (!tiktokResearchConfigured()) {
+      response.status(400).json({
+        error: "Add TIKTOK_RESEARCH_CLIENT_KEY and TIKTOK_RESEARCH_CLIENT_SECRET in Render env first.",
+        requiredEnv: ["TIKTOK_RESEARCH_CLIENT_KEY", "TIKTOK_RESEARCH_CLIENT_SECRET"],
+      });
+      return;
+    }
+    const result = await refreshTikTokResearchCreators();
+    logActivity(
+      request.user.email,
+      "TikTok Refresh",
+      `Scanned ${result.videosScanned} videos and loaded ${result.creators.length} creators`,
+    );
+    response.json({
+      ok: true,
+      mode: "tiktok-research-api",
+      creatorsImported: result.creators.length,
+      videosScanned: result.videosScanned,
+      usernamesScanned: result.usernamesScanned,
+      updatedAt: result.updatedAt,
+      sheetSynced: result.sheetSynced,
+      note: `TikTok refresh complete: ${result.creators.length} creators from ${result.videosScanned} recent US videos.`,
+    });
+  } catch (error) {
+    response.status(502).json({ error: error.message });
+  }
 });
 
 app.post("/api/sheets/sync", requireUser, requireAdmin, async (request, response) => {
@@ -1023,6 +1365,8 @@ app.post("/api/sheets/sync", requireUser, requireAdmin, async (request, response
   });
 });
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`LGPORT creator backend running on port ${port}`);
 });
+
+export { app, server };

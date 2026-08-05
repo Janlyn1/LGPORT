@@ -464,6 +464,7 @@ function App() {
     try {
       const data = await api("/api/provider/refresh", { method: "POST" });
       setNotice(data.note || "Refresh started.");
+      await loadRemote();
     } catch (error) {
       setNotice(error.message);
     }
@@ -622,7 +623,7 @@ function App() {
             </article>
             <article>
               <h2>Data Provider</h2>
-              <p>Approved TikTok/creator-data API required for automatic refresh.</p>
+              <p>Approved TikTok Research API credentials required for latest video and account refresh.</p>
               <button onClick={refreshProvider} type="button">Run Refresh</button>
             </article>
             <article>
