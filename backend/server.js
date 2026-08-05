@@ -1,5 +1,7 @@
 import cors from "cors";
 import crypto from "node:crypto";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import express from "express";
 import { OAuth2Client } from "google-auth-library";
 import { google } from "googleapis";
@@ -67,6 +69,9 @@ const keyApiVideoLookupLimit = Math.max(
   0,
   Math.min(Number(process.env.KEYAPI_VIDEO_LOOKUP_LIMIT || 30), 200),
 );
+const tiktokApiEnabled = process.env.TIKTOKAPI_ENABLED === "true";
+const tiktokApiMsToken = process.env.TIKTOK_MS_TOKEN || process.env.ms_token || "";
+const tiktokApiPython = process.env.TIKTOKAPI_PYTHON || "python";
 
 const allowedCategories = [
   "Beauty",
@@ -749,6 +754,10 @@ function keyApiConfigured() {
   return Boolean(keyApiKey);
 }
 
+function tiktokApiConfigured() {
+  return Boolean(tiktokApiEnabled && tiktokApiMsToken);
+}
+
 function dateStamp(date) {
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, "0");
@@ -1194,6 +1203,64 @@ async function refreshKeyApiCreators() {
     detailLookups,
     regionLookups,
     videoLookups,
+    updatedAt: memory.providerUpdatedAt,
+    sheetSynced,
+  };
+}
+
+function runPythonJson(scriptPath, env = {}, timeoutMs = 180000) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(tiktokApiPython, [scriptPath], {
+      cwd: new URL(".", import.meta.url),
+      env: { ...process.env, ...env },
+      windowsHide: true,
+    });
+    let stdout = "";
+    let stderr = "";
+    const timeout = setTimeout(() => {
+      child.kill();
+      reject(new Error("TikTokApi search timed out. Try fewer keywords or add a proxy/ms_token."));
+    }, timeoutMs);
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      if (code !== 0) {
+        reject(new Error(stderr || `Python TikTokApi provider exited with code ${code}.`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout));
+      } catch {
+        reject(new Error(`TikTokApi provider returned invalid JSON. ${stderr || stdout}`));
+      }
+    });
+  });
+}
+
+async function refreshTikTokApiCreators() {
+  if (!tiktokApiConfigured()) {
+    throw new Error("Set TIKTOKAPI_ENABLED=true and TIKTOK_MS_TOKEN in Render env first.");
+  }
+  const scriptPath = fileURLToPath(new URL("./tiktokapi_provider.py", import.meta.url));
+  const result = await runPythonJson(scriptPath, {
+    TODAY: new Date().toISOString().slice(0, 10),
+  });
+  memory.providerCreators = (result.creators || []).map(normalizeCreator);
+  memory.providerVideosScanned = 0;
+  memory.providerUpdatedAt = new Date().toISOString();
+  const sheetSynced = await replaceAllCreators(memory.providerCreators);
+  return {
+    creators: memory.providerCreators,
+    searchedPages: 0,
     updatedAt: memory.providerUpdatedAt,
     sheetSynced,
   };
@@ -1743,8 +1810,12 @@ app.get("/api/health", (_request, response) => {
     spreadsheetId,
     googleLoginConfigured: Boolean(googleClientId),
     publicAccess,
-    providerConfigured: keyApiConfigured() || tiktokResearchConfigured(),
-    provider: keyApiConfigured() ? "keyapi" : "tiktok-research-api",
+    providerConfigured: keyApiConfigured() || tiktokApiConfigured() || tiktokResearchConfigured(),
+    provider: keyApiConfigured()
+      ? "keyapi"
+      : tiktokApiConfigured()
+        ? "tiktokapi-direct"
+        : "tiktok-research-api",
     providerUpdatedAt: memory.providerUpdatedAt,
   });
 });
@@ -1792,12 +1863,16 @@ app.get("/api/creators", requireUser, requireAdmin, async (request, response) =>
       source: memory.providerCreators.length
         ? keyApiConfigured()
           ? "keyapi"
-          : "tiktok-research-api"
+          : tiktokApiConfigured()
+            ? "tiktokapi-direct"
+            : "tiktok-research-api"
         : keyApiConfigured()
           ? "keyapi-ready"
-          : tiktokResearchConfigured()
-            ? "tiktok-ready"
-          : "manual-import",
+          : tiktokApiConfigured()
+            ? "tiktokapi-ready"
+            : tiktokResearchConfigured()
+              ? "tiktok-ready"
+              : "manual-import",
       providerUpdatedAt: memory.providerUpdatedAt,
     });
   } catch (error) {
@@ -1916,23 +1991,35 @@ app.get("/api/admin", requireUser, requireAdmin, async (request, response) => {
 
 app.post("/api/provider/refresh", requireUser, requireAdmin, async (request, response) => {
   try {
-    if (!keyApiConfigured() && !tiktokResearchConfigured()) {
+    if (!keyApiConfigured() && !tiktokApiConfigured() && !tiktokResearchConfigured()) {
       response.status(400).json({
         error:
-          "Add KEYAPI_API_KEY in Render env, or add TIKTOK_RESEARCH_CLIENT_KEY and TIKTOK_RESEARCH_CLIENT_SECRET.",
-        requiredEnv: ["KEYAPI_API_KEY"],
+          "Add KEYAPI_API_KEY, or set TIKTOKAPI_ENABLED=true with TIKTOK_MS_TOKEN, or add TikTok Research credentials.",
+        requiredEnv: ["KEYAPI_API_KEY", "TIKTOKAPI_ENABLED", "TIKTOK_MS_TOKEN"],
       });
       return;
     }
-    const provider = keyApiConfigured() ? "keyapi" : "tiktok-research-api";
+    const provider = keyApiConfigured()
+      ? "keyapi"
+      : tiktokApiConfigured()
+        ? "tiktokapi-direct"
+        : "tiktok-research-api";
     const result = keyApiConfigured()
       ? await refreshKeyApiCreators()
-      : await refreshTikTokResearchCreators();
+      : tiktokApiConfigured()
+        ? await refreshTikTokApiCreators()
+        : await refreshTikTokResearchCreators();
     logActivity(
       request.user.email,
-      provider === "keyapi" ? "KeyAPI Refresh" : "TikTok Refresh",
+      provider === "keyapi"
+        ? "KeyAPI Refresh"
+        : provider === "tiktokapi-direct"
+          ? "TikTokApi Direct Refresh"
+          : "TikTok Refresh",
       provider === "keyapi"
         ? `Searched ${result.searchedPages} KeyAPI pages and loaded ${result.creators.length} creators`
+        : provider === "tiktokapi-direct"
+          ? `Loaded ${result.creators.length} creators from direct TikTokApi search`
         : `Scanned ${result.videosScanned} videos and loaded ${result.creators.length} creators`,
     );
     response.json({
@@ -1951,6 +2038,8 @@ app.post("/api/provider/refresh", requireUser, requireAdmin, async (request, res
       note:
         provider === "keyapi"
           ? `KeyAPI refresh complete: ${result.creators.length} creators found.`
+          : provider === "tiktokapi-direct"
+            ? `TikTok direct refresh complete: ${result.creators.length} creators found.`
           : `TikTok refresh complete: ${result.creators.length} creators from ${result.videosScanned} recent US videos.`,
     });
   } catch (error) {
