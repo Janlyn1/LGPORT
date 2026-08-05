@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 const PUBLIC_USER = {
   email: "janlynrustila01@gmail.com",
   name: "Janlyn Rustila",
@@ -263,56 +262,6 @@ function exportExcel(rows) {
   downloadFile("saved-creators.xls", html, "application/vnd.ms-excel");
 }
 
-function LoginScreen({ onLogin }) {
-  const [notice, setNotice] = useState("");
-
-  useEffect(() => {
-    if (!GOOGLE_CLIENT_ID || !canUseApi()) return;
-    const script = document.createElement("script");
-    script.src = "https://accounts.google.com/gsi/client";
-    script.async = true;
-    script.defer = true;
-    script.onload = () => {
-      window.google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: async (response) => {
-          try {
-            const result = await fetch(`${API_BASE}/api/auth/google`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ credential: response.credential }),
-            });
-            const data = await result.json();
-            if (!result.ok) throw new Error(data.error || "Access Denied");
-            localStorage.setItem("lgport_token", data.token);
-            onLogin(data.user, data.token);
-          } catch (error) {
-            setNotice(error.message || "Access Denied");
-          }
-        },
-      });
-      window.google.accounts.id.renderButton(document.getElementById("google-login"), {
-        theme: "outline",
-        size: "large",
-        width: 280,
-      });
-    };
-    document.body.appendChild(script);
-    return () => script.remove();
-  }, [onLogin]);
-
-  return (
-    <main className="login-shell">
-      <section className="login-panel">
-        <p className="eyebrow">Admin Only</p>
-        <h1>TikTok USA Creator Lead Finder</h1>
-        <div id="google-login" className="google-slot" />
-        {notice ? <div className="notice">{notice}</div> : null}
-      </section>
-    </main>
-  );
-}
-
 function CreatorCard({ creator, onSave, onSkip, onRestore, mode }) {
   return (
     <article className="creator-card">
@@ -359,8 +308,7 @@ function CreatorCard({ creator, onSave, onSkip, onRestore, mode }) {
 }
 
 function App() {
-  const [token, setToken] = useState(localStorage.getItem("lgport_token") || "");
-  const [user, setUser] = useState(canUseApi() && GOOGLE_CLIENT_ID ? null : PUBLIC_USER);
+  const [user] = useState(PUBLIC_USER);
   const [activeTab, setActiveTab] = useState("dashboard");
   const [allCreators, setAllCreators] = useState([]);
   const [saved, setSaved] = useState([]);
@@ -383,7 +331,6 @@ function App() {
   async function api(path, options = {}) {
     const headers = {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     };
     const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
@@ -565,19 +512,6 @@ function App() {
     setNotice(`Imported ${parsed.length} creators locally. Connect backend URL to sync Google Sheets.`);
   }
 
-  function logout() {
-    localStorage.removeItem("lgport_token");
-    setToken("");
-    setUser(canUseApi() && GOOGLE_CLIENT_ID ? null : PUBLIC_USER);
-  }
-
-  function handleLogin(nextUser, nextToken) {
-    setUser(nextUser);
-    setToken(nextToken);
-  }
-
-  if (!user) return <LoginScreen onLogin={handleLogin} />;
-
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -609,7 +543,6 @@ function App() {
               <strong>{user.name}</strong>
               <small>{user.email}</small>
             </div>
-            {GOOGLE_CLIENT_ID && canUseApi() ? <button className="ghost-button" onClick={logout} type="button">Logout</button> : null}
           </div>
         </header>
 
