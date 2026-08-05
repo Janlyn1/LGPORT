@@ -3,35 +3,80 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 const PUBLIC_USER = {
   email: "janlynrustila01@gmail.com",
   name: "Janlyn Rustila",
   role: "Admin",
 };
-const savedStatuses = ["Saved", "Already Messaged", "Approved", "Not Approved", "Rejected"];
-const fallbackCreators = [
-  ["BL001", "Beauty Lifestyle Lead 01", "18.4K", 18400, "https://www.tiktok.com/search?q=beauty%20products%20lifestyle%20creator", "Beauty Products"],
-  ["BL002", "Glow Routine Lead 02", "16.8K", 16800, "https://www.tiktok.com/search?q=skincare%20routine%20creator", "Beauty & Skincare"],
-  ["BL003", "Makeup Finds Lead 03", "14.2K", 14200, "https://www.tiktok.com/search?q=makeup%20finds%20creator", "Makeup Reviews"],
-  ["BL004", "Self Care Lead 04", "12.6K", 12600, "https://www.tiktok.com/search?q=self%20care%20beauty%20creator", "Self Care"],
-  ["BL005", "Lifestyle Beauty Lead 05", "10.9K", 10900, "https://www.tiktok.com/search?q=lifestyle%20beauty%20creator", "Lifestyle"],
-  ["BL006", "Affordable Beauty Lead 06", "9.7K", 9700, "https://www.tiktok.com/search?q=affordable%20beauty%20products%20creator", "Beauty Products"],
-  ["BL007", "GRWM Beauty Lead 07", "8.1K", 8100, "https://www.tiktok.com/search?q=grwm%20beauty%20creator", "Lifestyle"],
-  ["BL008", "Skincare Finds Lead 08", "6.8K", 6800, "https://www.tiktok.com/search?q=skincare%20finds%20creator", "Beauty & Skincare"],
-  ["BL009", "Mini Reviews Lead 09", "5.3K", 5300, "https://www.tiktok.com/search?q=beauty%20product%20review%20creator", "Makeup Reviews"],
-  ["BL010", "Everyday Glow Lead 10", "4.4K", 4400, "https://www.tiktok.com/search?q=everyday%20beauty%20routine%20creator", "Self Care"],
-  ["BL011", "New Beauty Lead 11", "3.2K", 3200, "https://www.tiktok.com/search?q=new%20beauty%20creator%20tiktok", "Beauty Products"],
-  ["BL012", "Starter Lifestyle Lead 12", "2.4K", 2400, "https://www.tiktok.com/search?q=small%20lifestyle%20beauty%20creator", "Lifestyle"],
-].map(([creatorId, name, followers, followerCount, tiktokLink, category]) => ({
+
+const categories = [
+  "All",
+  "Beauty",
+  "Lifestyle",
+  "Personal Care",
+  "Skincare",
+  "Haircare",
+  "Cosmetics",
+  "Wellness",
+  "Self Care",
+];
+
+const states = ["All", "California", "Texas", "Florida", "New York", "Nevada", "Arizona", "Washington"];
+const statuses = ["Saved", "Already Messaged", "Approved", "Not Approved", "Rejected"];
+const tabs = [
+  ["dashboard", "Dashboard"],
+  ["available", "Available Creators"],
+  ["saved", "Saved Creators"],
+  ["skipped", "Skipped Creators"],
+  ["settings", "Settings"],
+];
+
+const starterCreators = [
+  ["BL001", "Beauty Lifestyle Lead 01", "beautylifestylelead01", "18.4K", 18400, "612", 612, "132K", 132000, "Beauty", "beautylead01@example.com", "Los Angeles, CA", "California", "Beauty creator sharing skincare finds, daily routines, and lifestyle favorites.", "https://example.com/beautylead01", "https://instagram.com/beautylead01"],
+  ["BL002", "Glow Routine Lead 02", "glowroutinelead02", "16.8K", 16800, "488", 488, "118K", 118000, "Skincare", "glowlead02@example.com", "Austin, TX", "Texas", "Daily skincare, sunscreen picks, gentle routines, and product reviews.", "", "https://instagram.com/glowroutinelead02"],
+  ["BL003", "Makeup Finds Lead 03", "makeupfindslead03", "14.2K", 14200, "790", 790, "91K", 91000, "Cosmetics", "", "Miami, FL", "Florida", "Affordable makeup finds, quick GRWM clips, and new cosmetics try-ons.", "https://example.com/makeupfinds03", "https://instagram.com/makeupfindslead03"],
+  ["BL004", "Self Care Lead 04", "selfcarelead04", "12.6K", 12600, "351", 351, "84K", 84000, "Self Care", "selfcarelead04@example.com", "New York, NY", "New York", "Self care, personal care routines, bath products, and simple lifestyle content.", "", ""],
+  ["BL005", "Lifestyle Beauty Lead 05", "lifestylebeautylead05", "10.9K", 10900, "525", 525, "79K", 79000, "Lifestyle", "lifestylelead05@example.com", "Las Vegas, NV", "Nevada", "Beauty, errands, routines, and easy lifestyle recommendations.", "", "https://instagram.com/lifestylebeautylead05"],
+  ["BL006", "Affordable Beauty Lead 06", "affordablebeautylead06", "9.7K", 9700, "284", 284, "56K", 56000, "Beauty", "", "Phoenix, AZ", "Arizona", "Drugstore beauty products, skincare under budget, and honest mini reviews.", "", ""],
+  ["BL007", "GRWM Beauty Lead 07", "grwmbeautylead07", "8.1K", 8100, "432", 432, "49K", 49000, "Lifestyle", "grwmlead07@example.com", "Seattle, WA", "Washington", "GRWM, beauty lifestyle, hair routines, and everyday product recs.", "https://example.com/grwmlead07", "https://instagram.com/grwmbeautylead07"],
+  ["BL008", "Skincare Finds Lead 08", "skincarefindslead08", "6.8K", 6800, "190", 190, "36K", 36000, "Skincare", "skincarelead08@example.com", "San Diego, CA", "California", "Skincare routine testing, cleanser reviews, and sensitive skin favorites.", "", "https://instagram.com/skincarefindslead08"],
+  ["BL009", "Hair Care Lead 09", "haircarelead09", "5.3K", 5300, "270", 270, "29K", 29000, "Haircare", "", "Orlando, FL", "Florida", "Haircare wash days, styling creams, scalp care, and product demos.", "", "https://instagram.com/haircarelead09"],
+  ["BL010", "Everyday Glow Lead 10", "everydayglowlead10", "4.4K", 4400, "301", 301, "21K", 21000, "Personal Care", "glowlead10@example.com", "Dallas, TX", "Texas", "Personal care routines, body care, beauty basics, and everyday glow tips.", "", ""],
+  ["BL011", "New Beauty Lead 11", "newbeautylead11", "3.2K", 3200, "144", 144, "16K", 16000, "Cosmetics", "", "Reno, NV", "Nevada", "New beauty creator focused on makeup, cosmetics, and lifestyle clips.", "", ""],
+  ["BL012", "Starter Lifestyle Lead 12", "starterlifestylelead12", "2.4K", 2400, "208", 208, "11K", 11000, "Wellness", "starterlead12@example.com", "Brooklyn, NY", "New York", "Wellness, self care, beauty lifestyle, and small creator product content.", "", "https://instagram.com/starterlifestylelead12"],
+].map(([creatorId, name, username, followers, followerCount, following, followingCount, likes, likesCount, category, email, location, state, bio, website, instagram]) => ({
   creatorId,
   name,
+  username,
+  tiktokLink: `https://www.tiktok.com/@${username}`,
   followers,
   followerCount,
-  tiktokLink,
+  following,
+  followingCount,
+  likes,
+  likesCount,
   category,
+  email,
+  location,
+  city: location.split(",")[0],
+  state,
   country: "United States",
+  bio,
+  website,
+  instagram,
+  youtube: "",
+  profilePicture: "",
   lastUpdated: "2026-08-06",
+  confidence: 88 + Math.floor(Math.random() * 9),
 }));
+
+function canUseApi() {
+  if (typeof window === "undefined") return true;
+  const hosted = window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1";
+  const localApi = API_BASE.includes("localhost") || API_BASE.includes("127.0.0.1");
+  return !(hosted && localApi);
+}
 
 function compactNumber(value) {
   return Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value || 0);
@@ -50,51 +95,226 @@ function initials(name = "") {
     .toUpperCase();
 }
 
-function statusClass(status) {
-  return `status status-${status.toLowerCase().replaceAll(" ", "-")}`;
+function duplicateKey(creator) {
+  return `${creator.username || ""}|${creator.tiktokLink || ""}`.toLowerCase();
 }
 
 function dateLabel(value) {
   if (!value) return "";
-  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(
-    new Date(value),
+  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
+}
+
+function normalizeCreator(creator) {
+  const username = String(creator.username || creator.tiktokUsername || "").replace(/^@/, "").toLowerCase();
+  return {
+    ...creator,
+    name: creator.name || creator.creatorName || username || "Untitled Creator",
+    username,
+    tiktokLink: creator.tiktokLink || creator.tiktokProfileUrl || (username ? `https://www.tiktok.com/@${username}` : ""),
+    followerCount: Number(creator.followerCount || String(creator.followers || "").replace(/[^0-9]/g, "")) || 0,
+    likesCount: Number(creator.likesCount || String(creator.likes || "").replace(/[^0-9]/g, "")) || 0,
+    country: "United States",
+    status: creator.status || "Saved",
+  };
+}
+
+function filterCreators(list, filters, saved, skipped) {
+  const search = filters.search.trim().toLowerCase();
+  const min = Number(filters.minFollowers || 0);
+  const max = Number(filters.maxFollowers || 999999999);
+  const savedKeys = new Set(saved.map(duplicateKey));
+  const skippedKeys = new Set(skipped.map(duplicateKey));
+  const rows = list.map(normalizeCreator).filter((creator) => {
+    const haystack = [creator.name, creator.username, creator.location, creator.state, creator.category, creator.bio]
+      .join(" ")
+      .toLowerCase();
+    return (
+      creator.country === "United States" &&
+      creator.followerCount >= min &&
+      creator.followerCount <= max &&
+      !savedKeys.has(duplicateKey(creator)) &&
+      !skippedKeys.has(duplicateKey(creator)) &&
+      (!search || haystack.includes(search)) &&
+      (filters.category === "All" || creator.category === filters.category) &&
+      (filters.state === "All" || creator.state === filters.state) &&
+      (!filters.emailOnly || Boolean(creator.email))
+    );
+  });
+  if (filters.sort === "lowest") rows.sort((a, b) => a.followerCount - b.followerCount);
+  if (filters.sort === "highest") rows.sort((a, b) => b.followerCount - a.followerCount);
+  if (filters.sort === "newest" || filters.sort === "updated") {
+    rows.sort((a, b) => String(b.lastUpdated).localeCompare(String(a.lastUpdated)));
+  }
+  return rows;
+}
+
+function rowForExport(creator) {
+  return {
+    "Date Saved": creator.dateSaved || "",
+    "Creator Name": creator.name,
+    "TikTok Username": creator.username,
+    "TikTok Profile URL": creator.tiktokLink,
+    Followers: creator.followers || compactNumber(creator.followerCount),
+    Following: creator.following || "",
+    Likes: creator.likes || compactNumber(creator.likesCount),
+    Category: creator.category,
+    Email: creator.email || "",
+    Location: creator.location || "",
+    State: creator.state || "",
+    Country: "United States",
+    Bio: creator.bio || "",
+    "Website Link": creator.website || "",
+    Instagram: creator.instagram || "",
+    YouTube: creator.youtube || "",
+    Status: creator.status || "Saved",
+    "Saved By": creator.savedBy || PUBLIC_USER.email,
+    "Last Updated": creator.lastUpdated || "",
+  };
+}
+
+function downloadFile(name, content, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportCsv(rows) {
+  const mapped = rows.map(rowForExport);
+  const headers = Object.keys(mapped[0] || rowForExport({}));
+  const csv = [
+    headers.join(","),
+    ...mapped.map((row) => headers.map((header) => `"${String(row[header] || "").replaceAll('"', '""')}"`).join(",")),
+  ].join("\n");
+  downloadFile("saved-creators.csv", csv, "text/csv;charset=utf-8");
+}
+
+function exportExcel(rows) {
+  const mapped = rows.map(rowForExport);
+  const headers = Object.keys(mapped[0] || rowForExport({}));
+  const html = `<table><thead><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr></thead><tbody>${mapped
+    .map((row) => `<tr>${headers.map((header) => `<td>${String(row[header] || "")}</td>`).join("")}</tr>`)
+    .join("")}</tbody></table>`;
+  downloadFile("saved-creators.xls", html, "application/vnd.ms-excel");
+}
+
+function LoginScreen({ onLogin }) {
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID || !canUseApi()) return;
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: async (response) => {
+          try {
+            const result = await fetch(`${API_BASE}/api/auth/google`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ credential: response.credential }),
+            });
+            const data = await result.json();
+            if (!result.ok) throw new Error(data.error || "Access Denied");
+            localStorage.setItem("lgport_token", data.token);
+            onLogin(data.user, data.token);
+          } catch (error) {
+            setNotice(error.message || "Access Denied");
+          }
+        },
+      });
+      window.google.accounts.id.renderButton(document.getElementById("google-login"), {
+        theme: "outline",
+        size: "large",
+        width: 280,
+      });
+    };
+    document.body.appendChild(script);
+    return () => script.remove();
+  }, [onLogin]);
+
+  return (
+    <main className="login-shell">
+      <section className="login-panel">
+        <p className="eyebrow">Admin Only</p>
+        <h1>TikTok USA Creator Lead Finder</h1>
+        <div id="google-login" className="google-slot" />
+        {notice ? <div className="notice">{notice}</div> : null}
+      </section>
+    </main>
   );
 }
 
-function filterCreators(list, filters) {
-  const searchText = (filters.search || "").trim().toLowerCase();
-  const min = Number.parseInt(filters.minFollowers || "0", 10);
-  const max = Number.parseInt(filters.maxFollowers || "0", 10);
-  return list.filter((creator) => {
-    const haystack = [creator.name, creator.category, creator.country, creator.tiktokLink]
-      .join(" ")
-      .toLowerCase();
-    const matchesSearch = !searchText || haystack.includes(searchText);
-    const matchesMin = !min || creator.followerCount >= min;
-    const matchesMax = !max || creator.followerCount <= max;
-    const matchesCategory = filters.category === "All" || creator.category === filters.category;
-    return matchesSearch && matchesMin && matchesMax && matchesCategory;
-  });
+function CreatorCard({ creator, onSave, onSkip, onRestore, mode }) {
+  return (
+    <article className="creator-card">
+      <div className="creator-card-main">
+        <div className="profile-avatar">{creator.profilePicture ? <img src={creator.profilePicture} alt="" /> : initials(creator.name)}</div>
+        <div>
+          <div className="creator-title">
+            <h3>{creator.name}</h3>
+            <span>{creator.confidence || 90}%</span>
+          </div>
+          <p>@{creator.username}</p>
+        </div>
+      </div>
+      <div className="creator-stats">
+        <span><strong>{creator.followers || compactNumber(creator.followerCount)}</strong> Followers</span>
+        <span><strong>{creator.likes || compactNumber(creator.likesCount)}</strong> Likes</span>
+        <span><strong>{creator.location}</strong> Location</span>
+      </div>
+      <p className="bio">{creator.bio}</p>
+      <div className="chip-row">
+        <span>{creator.category}</span>
+        <span>{creator.country}</span>
+        {creator.email ? <span>Email</span> : <span>No public email</span>}
+      </div>
+      <div className="link-grid">
+        {creator.email ? <a href={`mailto:${creator.email}`}>{creator.email}</a> : <span />}
+        {creator.website ? <a href={creator.website} target="_blank" rel="noreferrer">Website</a> : <span />}
+        {creator.instagram ? <a href={creator.instagram} target="_blank" rel="noreferrer">Instagram</a> : <span />}
+        <a href={creator.tiktokLink} target="_blank" rel="noreferrer">TikTok</a>
+      </div>
+      <div className="card-actions">
+        {mode === "skipped" ? (
+          <button onClick={() => onRestore(creator)} type="button">Restore</button>
+        ) : (
+          <>
+            <button onClick={() => onSave(creator)} type="button">Save</button>
+            <button className="secondary" onClick={() => onSkip(creator)} type="button">Skip</button>
+            <a className="button-link" href={creator.tiktokLink} target="_blank" rel="noreferrer">View Profile</a>
+          </>
+        )}
+      </div>
+    </article>
+  );
 }
 
-function canUseApi() {
-  if (typeof window === "undefined") return true;
-  const hostedPage = window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1";
-  const localApi = API_BASE.includes("localhost") || API_BASE.includes("127.0.0.1");
-  return !(hostedPage && localApi);
-}
-
-function Dashboard({ user, token }) {
-  const [creators, setCreators] = useState([]);
-  const [savedCreators, setSavedCreators] = useState([]);
-  const [categories, setCategories] = useState([]);
+function App() {
+  const [token, setToken] = useState(localStorage.getItem("lgport_token") || "");
+  const [user, setUser] = useState(canUseApi() && GOOGLE_CLIENT_ID ? null : PUBLIC_USER);
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const [allCreators, setAllCreators] = useState(starterCreators);
+  const [saved, setSaved] = useState([]);
+  const [skipped, setSkipped] = useState([]);
   const [admin, setAdmin] = useState(null);
-  const [search, setSearch] = useState("");
-  const [minFollowers, setMinFollowers] = useState("2000");
-  const [maxFollowers, setMaxFollowers] = useState("20000");
-  const [category, setCategory] = useState("All");
   const [notice, setNotice] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [filters, setFilters] = useState({
+    search: "",
+    minFollowers: "2000",
+    maxFollowers: "20000",
+    category: "All",
+    state: "All",
+    emailOnly: false,
+    sort: "lowest",
+  });
 
   async function api(path, options = {}) {
     const headers = {
@@ -102,56 +322,35 @@ function Dashboard({ user, token }) {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     };
-    const response = await fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers,
-    });
+    const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Request failed.");
     return data;
   }
 
-  async function loadCreators() {
-    const params = new URLSearchParams({
-      search,
-      minFollowers,
-      maxFollowers,
-      category,
-    });
-    if (!canUseApi()) {
-      setCreators(filterCreators(fallbackCreators, { search, minFollowers, maxFollowers, category }));
-      setCategories(["All", ...new Set(fallbackCreators.map((creator) => creator.category))]);
-      return;
-    }
-    try {
-      const data = await api(`/api/creators?${params.toString()}`);
-      setCreators(data.creators || []);
-      setCategories(["All", ...(data.categories || [])]);
-    } catch (error) {
-      setCreators(filterCreators(fallbackCreators, { search, minFollowers, maxFollowers, category }));
-      setCategories(["All", ...new Set(fallbackCreators.map((creator) => creator.category))]);
-    }
-  }
-
-  async function loadSaved() {
-    if (!canUseApi()) return;
-    const data = await api("/api/saved");
-    setSavedCreators(data.creators || []);
-  }
-
-  async function loadAdmin() {
-    if (!canUseApi()) return;
-    if (user.role !== "Admin") return;
-    const data = await api("/api/admin");
-    setAdmin(data);
-  }
-
-  async function refreshAll() {
+  async function loadRemote() {
+    if (!canUseApi() || !user) return;
     setLoading(true);
-    setNotice("");
     try {
-      await loadCreators();
-      await Promise.allSettled([loadSaved(), loadAdmin()]);
+      const params = new URLSearchParams({
+        search: filters.search,
+        minFollowers: filters.minFollowers,
+        maxFollowers: filters.maxFollowers,
+        category: filters.category,
+        state: filters.state,
+        emailOnly: String(filters.emailOnly),
+        sort: filters.sort,
+      });
+      const [creatorData, savedData, skippedData, adminData] = await Promise.all([
+        api(`/api/creators?${params.toString()}`),
+        api("/api/saved"),
+        api("/api/skipped"),
+        api("/api/admin"),
+      ]);
+      setAllCreators((creatorData.creators || []).map(normalizeCreator));
+      setSaved((savedData.creators || []).map(normalizeCreator));
+      setSkipped((skippedData.creators || []).map(normalizeCreator));
+      setAdmin(adminData);
     } catch (error) {
       setNotice(error.message);
     } finally {
@@ -160,190 +359,283 @@ function Dashboard({ user, token }) {
   }
 
   useEffect(() => {
-    refreshAll();
-  }, []);
+    if (user) loadRemote();
+  }, [user]);
 
-  const metrics = useMemo(() => {
-    const approved = savedCreators.filter((creator) => creator.status === "Approved").length;
-    const rejected = savedCreators.filter((creator) => creator.status === "Rejected").length;
-    return [
-      ["Results", fullNumber(creators.length)],
-      ["My Saved", fullNumber(savedCreators.length)],
-      ["Approved", fullNumber(approved)],
-      ["Rejected", fullNumber(rejected)],
-      ["Best Audience", compactNumber(Math.max(0, ...creators.map((creator) => creator.followerCount)))],
-    ];
-  }, [creators, savedCreators]);
+  const available = useMemo(
+    () => filterCreators(allCreators, filters, saved, skipped),
+    [allCreators, filters, saved, skipped],
+  );
+
+  const savedFiltered = useMemo(() => {
+    const search = filters.search.trim().toLowerCase();
+    return saved.filter((creator) =>
+      [creator.name, creator.username, creator.location, creator.category, creator.email].join(" ").toLowerCase().includes(search),
+    );
+  }, [saved, filters.search]);
+
+  const metrics = [
+    ["Creators Found", fullNumber(available.length)],
+    ["Creators Saved", fullNumber(saved.length)],
+    ["Creators Skipped", fullNumber(skipped.length)],
+    ["Google Sync", admin?.googleSyncSuccess ? "Ready" : canUseApi() ? "Check" : "Local"],
+    ["Today's Saves", fullNumber(admin?.todaysSaves || saved.length)],
+    ["Duplicate Removed", fullNumber(admin?.duplicateRemoved || 0)],
+  ];
+
+  function updateFilter(key, value) {
+    setFilters((current) => ({ ...current, [key]: value }));
+  }
 
   async function saveCreator(creator) {
     setNotice("");
+    const row = { ...normalizeCreator(creator), status: "Saved", savedBy: user.email, dateSaved: new Date().toISOString().slice(0, 10) };
+    if (saved.some((item) => duplicateKey(item) === duplicateKey(row))) {
+      setNotice("Creator already saved.");
+      return;
+    }
+    if (canUseApi()) {
+      try {
+        await api("/api/saved", { method: "POST", body: JSON.stringify(row) });
+      } catch (error) {
+        setNotice(error.message);
+        return;
+      }
+    }
+    setSaved((current) => [row, ...current]);
+    setSkipped((current) => current.filter((item) => duplicateKey(item) !== duplicateKey(row)));
+    setNotice(`Saved @${row.username}`);
+  }
+
+  async function skipCreator(creator) {
+    const row = { ...normalizeCreator(creator), status: "Skipped", savedBy: user.email, dateSaved: new Date().toISOString().slice(0, 10) };
+    if (canUseApi()) {
+      try {
+        await api("/api/skipped", { method: "POST", body: JSON.stringify(row) });
+      } catch (error) {
+        setNotice(error.message);
+        return;
+      }
+    }
+    setSkipped((current) => [row, ...current.filter((item) => duplicateKey(item) !== duplicateKey(row))]);
+    setNotice(`Skipped @${row.username}`);
+  }
+
+  async function restoreCreator(creator) {
+    if (canUseApi()) {
+      try {
+        await api("/api/skipped/restore", { method: "POST", body: JSON.stringify(creator) });
+      } catch (error) {
+        setNotice(error.message);
+      }
+    }
+    setSkipped((current) => current.filter((item) => duplicateKey(item) !== duplicateKey(creator)));
+  }
+
+  async function deleteSaved(creator) {
+    if (canUseApi()) {
+      try {
+        await api("/api/saved", { method: "DELETE", body: JSON.stringify(creator) });
+      } catch (error) {
+        setNotice(error.message);
+      }
+    }
+    setSaved((current) => current.filter((item) => duplicateKey(item) !== duplicateKey(creator)));
+  }
+
+  async function syncSheets() {
     if (!canUseApi()) {
-      setNotice("Add the Render backend URL to VITE_API_BASE_URL to save creators.");
+      setNotice("Add Render backend URL to VITE_API_BASE_URL for Google Sheets sync.");
       return;
     }
     try {
-      const data = await api("/api/saved", {
-        method: "POST",
-        body: JSON.stringify({
-          name: creator.name,
-          followers: creator.followers,
-          tiktokLink: creator.tiktokLink,
-          status: "Saved",
-          notes: "",
-        }),
-      });
-      setNotice(data.teamDuplicateWarning ? "Creator saved. Team warning: another member saved this creator too." : "Creator Saved");
-      await loadSaved();
+      const data = await api("/api/sheets/sync", { method: "POST" });
+      setNotice(`Google Sheet tab ready: ${data.personalTab}`);
     } catch (error) {
       setNotice(error.message);
     }
   }
 
-  async function updateSaved(creator, updates) {
-    setNotice("");
+  async function refreshProvider() {
     if (!canUseApi()) {
-      setNotice("Add the Render backend URL to VITE_API_BASE_URL to update saved creators.");
+      setNotice("Connect an approved creator data provider API key to enable auto refresh.");
       return;
     }
     try {
-      await api("/api/saved", {
-        method: "PATCH",
-        body: JSON.stringify({ tiktokLink: creator.tiktokLink, ...updates }),
-      });
-      await loadSaved();
-      setNotice("Saved creator updated");
+      const data = await api("/api/provider/refresh", { method: "POST" });
+      setNotice(data.note || "Refresh started.");
     } catch (error) {
       setNotice(error.message);
     }
   }
+
+  function logout() {
+    localStorage.removeItem("lgport_token");
+    setToken("");
+    setUser(canUseApi() && GOOGLE_CLIENT_ID ? null : PUBLIC_USER);
+  }
+
+  function handleLogin(nextUser, nextToken) {
+    setUser(nextUser);
+    setToken(nextToken);
+  }
+
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
 
   return (
     <main className="app-shell">
-      <section className="topbar">
-        <div>
-          <p className="eyebrow">TikTok Creator Internal Website</p>
-          <h1>TikTok Creator Dashboard</h1>
-        </div>
-        <div className="account-pill">
-          <span>{initials(user.name)}</span>
+      <aside className="sidebar">
+        <div className="brand">
+          <span>LG</span>
           <div>
-            <strong>{user.name}</strong>
-            <small>{user.email}</small>
+            <strong>LGPORT</strong>
+            <small>Creator Leads</small>
           </div>
         </div>
-      </section>
+        <nav>
+          {tabs.map(([id, label]) => (
+            <button className={activeTab === id ? "active" : ""} key={id} onClick={() => setActiveTab(id)} type="button">
+              {label}
+            </button>
+          ))}
+        </nav>
+      </aside>
 
-      <section className="metrics-grid">
-        {metrics.map(([label, value]) => (
-          <article className="metric" key={label}>
-            <span>{label}</span>
-            <strong>{value}</strong>
-          </article>
-        ))}
-      </section>
-
-      {notice ? <div className="notice">{notice}</div> : null}
-
-      <section className="search-band">
-        <label>
-          Search
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="beauty lifestyle" />
-        </label>
-        <label>
-          Min Followers
-          <input value={minFollowers} onChange={(event) => setMinFollowers(event.target.value)} placeholder="2000" />
-        </label>
-        <label>
-          Max Followers
-          <input value={maxFollowers} onChange={(event) => setMaxFollowers(event.target.value)} placeholder="20000" />
-        </label>
-        <label>
-          Category
-          <select value={category} onChange={(event) => setCategory(event.target.value)}>
-            {categories.map((item) => <option key={item}>{item}</option>)}
-          </select>
-        </label>
-        <button onClick={refreshAll} type="button">{loading ? "Searching" : "Search Creators"}</button>
-      </section>
-
-      <section className="workspace-grid two-col">
-        <div className="list-panel">
-          <div className="panel-header">
-            <div>
-              <h2>All Creators</h2>
-              <p>Source: Google Sheet tab `All Creators`</p>
-            </div>
+      <section className="content-shell">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">TikTok USA Creator Lead Finder</p>
+            <h1>Admin Dashboard</h1>
           </div>
-          <div className="creator-table">
-            {creators.map((creator) => (
-              <div className="creator-row" key={creator.creatorId || creator.tiktokLink}>
-                <span className="avatar">{initials(creator.name)}</span>
-                <span className="creator-main">
-                  <strong>{creator.name}</strong>
-                  <small>{creator.category} | {creator.country}</small>
-                </span>
-                <span className="creator-meta">
-                  <strong>{creator.followers || compactNumber(creator.followerCount)}</strong>
-                  <small>{dateLabel(creator.lastUpdated) || "Updated from sheet"}</small>
-                </span>
-                <span className="row-actions">
-                  <a href={creator.tiktokLink} target="_blank" rel="noreferrer">Open TikTok</a>
-                  <button onClick={() => saveCreator(creator)} type="button">Save</button>
-                </span>
+          <div className="account-pill">
+            <span>{initials(user.name)}</span>
+            <div>
+              <strong>{user.name}</strong>
+              <small>{user.email}</small>
+            </div>
+            {GOOGLE_CLIENT_ID && canUseApi() ? <button className="ghost-button" onClick={logout} type="button">Logout</button> : null}
+          </div>
+        </header>
+
+        <section className="metrics-grid">
+          {metrics.map(([label, value]) => (
+            <article className="metric" key={label}>
+              <span>{label}</span>
+              <strong>{value}</strong>
+            </article>
+          ))}
+        </section>
+
+        {notice ? <div className="notice">{notice}</div> : null}
+
+        <section className="filter-bar">
+          <label>
+            Search
+            <input value={filters.search} onChange={(event) => updateFilter("search", event.target.value)} placeholder="Name, username, location" />
+          </label>
+          <label>
+            Min
+            <input value={filters.minFollowers} onChange={(event) => updateFilter("minFollowers", event.target.value)} />
+          </label>
+          <label>
+            Max
+            <input value={filters.maxFollowers} onChange={(event) => updateFilter("maxFollowers", event.target.value)} />
+          </label>
+          <label>
+            Category
+            <select value={filters.category} onChange={(event) => updateFilter("category", event.target.value)}>
+              {categories.map((item) => <option key={item}>{item}</option>)}
+            </select>
+          </label>
+          <label>
+            State
+            <select value={filters.state} onChange={(event) => updateFilter("state", event.target.value)}>
+              {states.map((item) => <option key={item}>{item}</option>)}
+            </select>
+          </label>
+          <label>
+            Email
+            <select value={filters.emailOnly ? "email" : "all"} onChange={(event) => updateFilter("emailOnly", event.target.value === "email")}>
+              <option value="all">Show all</option>
+              <option value="email">Public email only</option>
+            </select>
+          </label>
+          <label>
+            Sort
+            <select value={filters.sort} onChange={(event) => updateFilter("sort", event.target.value)}>
+              <option value="lowest">Lowest Followers</option>
+              <option value="highest">Highest Followers</option>
+              <option value="newest">Newest</option>
+              <option value="updated">Recently Updated</option>
+            </select>
+          </label>
+          <button onClick={loadRemote} type="button">{loading ? "Loading" : "Refresh"}</button>
+        </section>
+
+        {activeTab === "dashboard" || activeTab === "available" ? (
+          <section className="card-grid">
+            {available.map((creator) => (
+              <CreatorCard creator={creator} key={duplicateKey(creator)} onSave={saveCreator} onSkip={skipCreator} />
+            ))}
+          </section>
+        ) : null}
+
+        {activeTab === "saved" ? (
+          <section className="table-panel">
+            <div className="panel-header">
+              <div>
+                <h2>Saved Creators</h2>
+                <p>{savedFiltered.length} records</p>
+              </div>
+              <div className="toolbar">
+                <button onClick={() => exportCsv(savedFiltered)} type="button">Export CSV</button>
+                <button onClick={() => exportExcel(savedFiltered)} type="button">Export Excel</button>
+              </div>
+            </div>
+            {savedFiltered.map((creator) => (
+              <div className="saved-row" key={duplicateKey(creator)}>
+                <strong>@{creator.username}</strong>
+                <span>{creator.name}</span>
+                <span>{creator.followers || compactNumber(creator.followerCount)}</span>
+                <span>{creator.category}</span>
+                <span>{creator.email || "No email"}</span>
+                <button className="ghost-button" onClick={() => deleteSaved(creator)} type="button">Delete</button>
               </div>
             ))}
-          </div>
-        </div>
+          </section>
+        ) : null}
 
-        <aside className="detail-panel">
-          <div className="panel-title">
-            <h2>My Saved Creators</h2>
-            <p>Personal tab: Saved - {user.email.split("@")[0]}</p>
-          </div>
-          <div className="saved-list">
-            {savedCreators.map((creator) => (
-              <article className="saved-card" key={creator.tiktokLink}>
-                <div>
-                  <strong>{creator.name}</strong>
-                  <a href={creator.tiktokLink} target="_blank" rel="noreferrer">View profile</a>
-                </div>
-                <span>{creator.followers}</span>
-                <select value={creator.status} onChange={(event) => updateSaved(creator, { status: event.target.value })}>
-                  {savedStatuses.map((status) => <option key={status}>{status}</option>)}
-                </select>
-                <textarea
-                  value={creator.notes || ""}
-                  onChange={(event) => updateSaved(creator, { notes: event.target.value })}
-                  placeholder="Notes"
-                />
-              </article>
+        {activeTab === "skipped" ? (
+          <section className="card-grid">
+            {skipped.map((creator) => (
+              <CreatorCard creator={creator} key={duplicateKey(creator)} mode="skipped" onRestore={restoreCreator} />
             ))}
-          </div>
-        </aside>
-      </section>
+          </section>
+        ) : null}
 
-      {user.role === "Admin" ? (
-        <section className="admin-panel">
-          <div>
-            <h2>Admin Dashboard</h2>
-            <p>Authorized users and team save summary</p>
-          </div>
-          {admin ? (
-            <div className="admin-grid">
-              <span>Active users <strong>{admin.activeUsers}</strong></span>
-              <span>Disabled users <strong>{admin.disabledUsers}</strong></span>
-              <span>Total creators <strong>{admin.totalCreators}</strong></span>
-              <span>Tracked users <strong>{admin.savedCounts?.length || 0}</strong></span>
-            </div>
-          ) : null}
-        </section>
-      ) : null}
+        {activeTab === "settings" ? (
+          <section className="settings-grid">
+            <article>
+              <h2>Google Sheet Settings</h2>
+              <p>{canUseApi() ? "Backend connected" : "Frontend demo mode"}</p>
+              <button onClick={syncSheets} type="button">Sync Google Sheets</button>
+            </article>
+            <article>
+              <h2>Data Provider</h2>
+              <p>Approved TikTok/creator-data API required for automatic refresh.</p>
+              <button onClick={refreshProvider} type="button">Run Refresh</button>
+            </article>
+            <article>
+              <h2>Activity Logs</h2>
+              {(admin?.logs || []).slice(0, 6).map((log) => (
+                <span className="log-line" key={`${log.createdAt}-${log.action}`}>{log.action} - {dateLabel(log.createdAt)}</span>
+              ))}
+            </article>
+          </section>
+        ) : null}
+      </section>
     </main>
   );
-}
-
-function App() {
-  return <Dashboard user={PUBLIC_USER} token="" />;
 }
 
 createRoot(document.getElementById("root")).render(<App />);

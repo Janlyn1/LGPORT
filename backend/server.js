@@ -12,6 +12,18 @@ const jwtSecret = process.env.JWT_SECRET || "local-dev-secret-change-me";
 const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
 const googleClient = googleClientId ? new OAuth2Client(googleClientId) : null;
 const defaultUserEmail = process.env.DEFAULT_USER_EMAIL || "janlynrustila01@gmail.com";
+const publicAccess = process.env.PUBLIC_ACCESS !== "false";
+
+const allowedCategories = [
+  "Beauty",
+  "Lifestyle",
+  "Personal Care",
+  "Skincare",
+  "Haircare",
+  "Cosmetics",
+  "Wellness",
+  "Self Care",
+];
 
 const savedStatuses = [
   "Saved",
@@ -21,137 +33,360 @@ const savedStatuses = [
   "Rejected",
 ];
 
+const sheetHeaders = [
+  "Date Saved",
+  "Creator Name",
+  "TikTok Username",
+  "TikTok Profile URL",
+  "Followers",
+  "Following",
+  "Likes",
+  "Category",
+  "Email",
+  "Location",
+  "State",
+  "Country",
+  "Bio",
+  "Website Link",
+  "Instagram",
+  "YouTube",
+  "Status",
+  "Saved By",
+  "Last Updated",
+];
+
+const creatorHeaders = [
+  "Creator ID",
+  "Creator Name",
+  "TikTok Username",
+  "TikTok Profile URL",
+  "Followers",
+  "Following",
+  "Likes",
+  "Category",
+  "Email",
+  "Location",
+  "State",
+  "Country",
+  "Bio",
+  "Website Link",
+  "Instagram",
+  "YouTube",
+  "Profile Picture",
+  "Last Updated",
+];
+
 const sampleAuthorizedUsers = [
-  { gmail: "admin@example.com", name: "Admin User", role: "Admin", status: "Active" },
   { gmail: "janlynrustila01@gmail.com", name: "Janlyn", role: "Admin", status: "Active" },
-  { gmail: "maria@example.com", name: "Maria", role: "User", status: "Active" },
 ];
 
 const sampleCreators = [
   {
     creatorId: "BL001",
     name: "Beauty Lifestyle Lead 01",
+    username: "beautylifestylelead01",
+    tiktokLink: "https://www.tiktok.com/search?q=beauty%20products%20lifestyle%20creator",
     followers: "18.4K",
     followerCount: 18400,
-    tiktokLink: "https://www.tiktok.com/search?q=beauty%20products%20lifestyle%20creator",
-    category: "Beauty Products",
+    following: "612",
+    followingCount: 612,
+    likes: "132K",
+    likesCount: 132000,
+    category: "Beauty",
+    email: "beautylead01@example.com",
+    location: "Los Angeles, CA",
+    city: "Los Angeles",
+    state: "California",
     country: "United States",
+    bio: "Beauty creator sharing skincare finds, daily routines, and lifestyle favorites.",
+    website: "https://example.com/beautylead01",
+    instagram: "https://instagram.com/beautylead01",
+    youtube: "",
+    profilePicture: "",
     lastUpdated: "2026-08-06",
+    confidence: 96,
   },
   {
     creatorId: "BL002",
     name: "Glow Routine Lead 02",
+    username: "glowroutinelead02",
+    tiktokLink: "https://www.tiktok.com/search?q=skincare%20routine%20creator",
     followers: "16.8K",
     followerCount: 16800,
-    tiktokLink: "https://www.tiktok.com/search?q=skincare%20routine%20creator",
-    category: "Beauty & Skincare",
+    following: "488",
+    followingCount: 488,
+    likes: "118K",
+    likesCount: 118000,
+    category: "Skincare",
+    email: "glowlead02@example.com",
+    location: "Austin, TX",
+    city: "Austin",
+    state: "Texas",
     country: "United States",
+    bio: "Daily skincare, sunscreen picks, gentle routines, and product reviews.",
+    website: "",
+    instagram: "https://instagram.com/glowroutinelead02",
+    youtube: "",
+    profilePicture: "",
     lastUpdated: "2026-08-06",
+    confidence: 94,
   },
   {
     creatorId: "BL003",
     name: "Makeup Finds Lead 03",
+    username: "makeupfindslead03",
+    tiktokLink: "https://www.tiktok.com/search?q=makeup%20finds%20creator",
     followers: "14.2K",
     followerCount: 14200,
-    tiktokLink: "https://www.tiktok.com/search?q=makeup%20finds%20creator",
-    category: "Makeup Reviews",
+    following: "790",
+    followingCount: 790,
+    likes: "91K",
+    likesCount: 91000,
+    category: "Cosmetics",
+    email: "",
+    location: "Miami, FL",
+    city: "Miami",
+    state: "Florida",
     country: "United States",
+    bio: "Affordable makeup finds, quick GRWM clips, and new cosmetics try-ons.",
+    website: "https://example.com/makeupfinds03",
+    instagram: "https://instagram.com/makeupfindslead03",
+    youtube: "",
+    profilePicture: "",
     lastUpdated: "2026-08-06",
+    confidence: 91,
   },
   {
     creatorId: "BL004",
     name: "Self Care Lead 04",
+    username: "selfcarelead04",
+    tiktokLink: "https://www.tiktok.com/search?q=self%20care%20beauty%20creator",
     followers: "12.6K",
     followerCount: 12600,
-    tiktokLink: "https://www.tiktok.com/search?q=self%20care%20beauty%20creator",
+    following: "351",
+    followingCount: 351,
+    likes: "84K",
+    likesCount: 84000,
     category: "Self Care",
+    email: "selfcarelead04@example.com",
+    location: "New York, NY",
+    city: "New York",
+    state: "New York",
     country: "United States",
+    bio: "Self care, personal care routines, bath products, and simple lifestyle content.",
+    website: "",
+    instagram: "",
+    youtube: "",
+    profilePicture: "",
     lastUpdated: "2026-08-06",
+    confidence: 93,
   },
   {
     creatorId: "BL005",
     name: "Lifestyle Beauty Lead 05",
+    username: "lifestylebeautylead05",
+    tiktokLink: "https://www.tiktok.com/search?q=lifestyle%20beauty%20creator",
     followers: "10.9K",
     followerCount: 10900,
-    tiktokLink: "https://www.tiktok.com/search?q=lifestyle%20beauty%20creator",
+    following: "525",
+    followingCount: 525,
+    likes: "79K",
+    likesCount: 79000,
     category: "Lifestyle",
+    email: "lifestylelead05@example.com",
+    location: "Las Vegas, NV",
+    city: "Las Vegas",
+    state: "Nevada",
     country: "United States",
+    bio: "Beauty, errands, routines, and easy lifestyle recommendations.",
+    website: "",
+    instagram: "https://instagram.com/lifestylebeautylead05",
+    youtube: "",
+    profilePicture: "",
     lastUpdated: "2026-08-06",
+    confidence: 88,
   },
   {
     creatorId: "BL006",
     name: "Affordable Beauty Lead 06",
+    username: "affordablebeautylead06",
+    tiktokLink: "https://www.tiktok.com/search?q=affordable%20beauty%20products%20creator",
     followers: "9.7K",
     followerCount: 9700,
-    tiktokLink: "https://www.tiktok.com/search?q=affordable%20beauty%20products%20creator",
-    category: "Beauty Products",
+    following: "284",
+    followingCount: 284,
+    likes: "56K",
+    likesCount: 56000,
+    category: "Beauty",
+    email: "",
+    location: "Phoenix, AZ",
+    city: "Phoenix",
+    state: "Arizona",
     country: "United States",
+    bio: "Drugstore beauty products, skincare under budget, and honest mini reviews.",
+    website: "",
+    instagram: "",
+    youtube: "",
+    profilePicture: "",
     lastUpdated: "2026-08-06",
+    confidence: 89,
   },
   {
     creatorId: "BL007",
     name: "GRWM Beauty Lead 07",
+    username: "grwmbeautylead07",
+    tiktokLink: "https://www.tiktok.com/search?q=grwm%20beauty%20creator",
     followers: "8.1K",
     followerCount: 8100,
-    tiktokLink: "https://www.tiktok.com/search?q=grwm%20beauty%20creator",
+    following: "432",
+    followingCount: 432,
+    likes: "49K",
+    likesCount: 49000,
     category: "Lifestyle",
+    email: "grwmlead07@example.com",
+    location: "Seattle, WA",
+    city: "Seattle",
+    state: "Washington",
     country: "United States",
+    bio: "GRWM, beauty lifestyle, hair routines, and everyday product recs.",
+    website: "https://example.com/grwmlead07",
+    instagram: "https://instagram.com/grwmbeautylead07",
+    youtube: "",
+    profilePicture: "",
     lastUpdated: "2026-08-06",
+    confidence: 90,
   },
   {
     creatorId: "BL008",
     name: "Skincare Finds Lead 08",
+    username: "skincarefindslead08",
+    tiktokLink: "https://www.tiktok.com/search?q=skincare%20finds%20creator",
     followers: "6.8K",
     followerCount: 6800,
-    tiktokLink: "https://www.tiktok.com/search?q=skincare%20finds%20creator",
-    category: "Beauty & Skincare",
+    following: "190",
+    followingCount: 190,
+    likes: "36K",
+    likesCount: 36000,
+    category: "Skincare",
+    email: "skincarelead08@example.com",
+    location: "San Diego, CA",
+    city: "San Diego",
+    state: "California",
     country: "United States",
+    bio: "Skincare routine testing, cleanser reviews, and sensitive skin favorites.",
+    website: "",
+    instagram: "https://instagram.com/skincarefindslead08",
+    youtube: "",
+    profilePicture: "",
     lastUpdated: "2026-08-06",
+    confidence: 95,
   },
   {
     creatorId: "BL009",
-    name: "Mini Reviews Lead 09",
+    name: "Hair Care Lead 09",
+    username: "haircarelead09",
+    tiktokLink: "https://www.tiktok.com/search?q=haircare%20creator%20usa",
     followers: "5.3K",
     followerCount: 5300,
-    tiktokLink: "https://www.tiktok.com/search?q=beauty%20product%20review%20creator",
-    category: "Makeup Reviews",
+    following: "270",
+    followingCount: 270,
+    likes: "29K",
+    likesCount: 29000,
+    category: "Haircare",
+    email: "",
+    location: "Orlando, FL",
+    city: "Orlando",
+    state: "Florida",
     country: "United States",
+    bio: "Haircare wash days, styling creams, scalp care, and product demos.",
+    website: "",
+    instagram: "https://instagram.com/haircarelead09",
+    youtube: "",
+    profilePicture: "",
     lastUpdated: "2026-08-06",
+    confidence: 92,
   },
   {
     creatorId: "BL010",
     name: "Everyday Glow Lead 10",
+    username: "everydayglowlead10",
+    tiktokLink: "https://www.tiktok.com/search?q=everyday%20beauty%20routine%20creator",
     followers: "4.4K",
     followerCount: 4400,
-    tiktokLink: "https://www.tiktok.com/search?q=everyday%20beauty%20routine%20creator",
-    category: "Self Care",
+    following: "301",
+    followingCount: 301,
+    likes: "21K",
+    likesCount: 21000,
+    category: "Personal Care",
+    email: "glowlead10@example.com",
+    location: "Dallas, TX",
+    city: "Dallas",
+    state: "Texas",
     country: "United States",
+    bio: "Personal care routines, body care, beauty basics, and everyday glow tips.",
+    website: "",
+    instagram: "",
+    youtube: "",
+    profilePicture: "",
     lastUpdated: "2026-08-06",
+    confidence: 89,
   },
   {
     creatorId: "BL011",
     name: "New Beauty Lead 11",
+    username: "newbeautylead11",
+    tiktokLink: "https://www.tiktok.com/search?q=new%20beauty%20creator%20tiktok",
     followers: "3.2K",
     followerCount: 3200,
-    tiktokLink: "https://www.tiktok.com/search?q=new%20beauty%20creator%20tiktok",
-    category: "Beauty Products",
+    following: "144",
+    followingCount: 144,
+    likes: "16K",
+    likesCount: 16000,
+    category: "Cosmetics",
+    email: "",
+    location: "Reno, NV",
+    city: "Reno",
+    state: "Nevada",
     country: "United States",
+    bio: "New beauty creator focused on makeup, cosmetics, and lifestyle clips.",
+    website: "",
+    instagram: "",
+    youtube: "",
+    profilePicture: "",
     lastUpdated: "2026-08-06",
+    confidence: 86,
   },
   {
     creatorId: "BL012",
     name: "Starter Lifestyle Lead 12",
+    username: "starterlifestylelead12",
+    tiktokLink: "https://www.tiktok.com/search?q=small%20lifestyle%20beauty%20creator",
     followers: "2.4K",
     followerCount: 2400,
-    tiktokLink: "https://www.tiktok.com/search?q=small%20lifestyle%20beauty%20creator",
-    category: "Lifestyle",
+    following: "208",
+    followingCount: 208,
+    likes: "11K",
+    likesCount: 11000,
+    category: "Wellness",
+    email: "starterlead12@example.com",
+    location: "Brooklyn, NY",
+    city: "Brooklyn",
+    state: "New York",
     country: "United States",
+    bio: "Wellness, self care, beauty lifestyle, and small creator product content.",
+    website: "",
+    instagram: "https://instagram.com/starterlifestylelead12",
+    youtube: "",
+    profilePicture: "",
     lastUpdated: "2026-08-06",
+    confidence: 87,
   },
 ];
 
 const memory = {
   savedByEmail: new Map(),
+  skippedByEmail: new Map(),
+  logsByEmail: new Map(),
 };
 
 app.use(express.json({ limit: "1mb" }));
@@ -182,8 +417,12 @@ function parseFollowers(value) {
   return Math.round(number);
 }
 
+function formatFollowers(value) {
+  return Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value || 0);
+}
+
 function slugFromEmail(email) {
-  const [local, domain = "gmail"] = email.toLowerCase().split("@");
+  const [local, domain = "gmail"] = String(email || "").toLowerCase().split("@");
   const safeLocal = local.replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
   const safeDomain = domain.split(".")[0].replace(/[^a-z0-9_]+/g, "_");
   return safeLocal || safeDomain || "user";
@@ -193,15 +432,27 @@ function savedSheetName(email) {
   return `Saved - ${slugFromEmail(email)}`.slice(0, 90);
 }
 
+function skippedSheetName(email) {
+  return `Skipped - ${slugFromEmail(email)}`.slice(0, 90);
+}
+
 function looksLikeEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean(value).toLowerCase());
 }
 
 function nameFromEmail(email) {
-  return email
+  return String(email || "")
     .split("@")[0]
     .replace(/[._-]+/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function publicUser() {
+  return {
+    email: defaultUserEmail.toLowerCase(),
+    name: nameFromEmail(defaultUserEmail),
+    role: "Admin",
+  };
 }
 
 function signSession(user) {
@@ -217,27 +468,23 @@ function signSession(user) {
 }
 
 function readSession(token) {
-  const [body, signature] = String(token || "").split(".");
-  if (!body || !signature) return null;
-  const expected = crypto.createHmac("sha256", jwtSecret).update(body).digest("base64url");
-  if (signature.length !== expected.length) return null;
-  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
-  const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
-  if (!payload.exp || payload.exp < Date.now()) return null;
-  return payload;
-}
-
-function publicUser() {
-  return {
-    email: defaultUserEmail.toLowerCase(),
-    name: nameFromEmail(defaultUserEmail),
-    role: "Admin",
-  };
+  try {
+    const [body, signature] = String(token || "").split(".");
+    if (!body || !signature) return null;
+    const expected = crypto.createHmac("sha256", jwtSecret).update(body).digest("base64url");
+    if (signature.length !== expected.length) return null;
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+    const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
+    if (!payload.exp || payload.exp < Date.now()) return null;
+    return payload;
+  } catch {
+    return null;
+  }
 }
 
 function requireUser(request, response, next) {
   const token = request.headers.authorization?.replace(/^Bearer\s+/i, "");
-  const user = token ? readSession(token) : publicUser();
+  const user = token ? readSession(token) : publicAccess ? publicUser() : null;
   if (!user) {
     response.status(401).json({ error: "Login required." });
     return;
@@ -248,7 +495,7 @@ function requireUser(request, response, next) {
 
 function requireAdmin(request, response, next) {
   if (request.user?.role !== "Admin") {
-    response.status(403).json({ error: "Admin access required." });
+    response.status(403).json({ error: "Access Denied" });
     return;
   }
   next();
@@ -314,20 +561,15 @@ async function ensureSheet(title, headers) {
   if (!exists) {
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
-      requestBody: {
-        requests: [{ addSheet: { properties: { title } } }],
-      },
+      requestBody: { requests: [{ addSheet: { properties: { title } } }] },
     });
   }
-  const headerRows = await values(`'${title}'!A1:${String.fromCharCode(64 + headers.length)}1`);
-  if (!headerRows.length) {
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `'${title}'!A1`,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values: [headers] },
-    });
-  }
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `'${title}'!A1:${String.fromCharCode(64 + headers.length)}1`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [headers] },
+  });
 }
 
 async function appendRow(title, row) {
@@ -341,49 +583,160 @@ async function appendRow(title, row) {
   });
 }
 
-async function updateRow(title, rowNumber, row) {
-  const sheets = await sheetsClient();
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `'${title}'!A${rowNumber}:G${rowNumber}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: { values: [row] },
-  });
+function normalizeCreator(input = {}) {
+  const username = clean(input.username || input.tiktokUsername || input.handle)
+    .replace(/^@/, "")
+    .toLowerCase();
+  const tiktokLink =
+    clean(input.tiktokLink || input.tiktokProfileUrl || input.profileUrl) ||
+    (username ? `https://www.tiktok.com/@${username}` : "");
+  const followerCount = parseFollowers(input.followers ?? input.followerCount);
+  const likesCount = parseFollowers(input.likes ?? input.likesCount);
+  const followingCount = parseFollowers(input.following ?? input.followingCount);
+  return {
+    creatorId: clean(input.creatorId) || username || crypto.randomUUID(),
+    name: clean(input.name || input.creatorName) || username || "Untitled Creator",
+    username,
+    tiktokLink,
+    followers: clean(input.followers) || formatFollowers(followerCount),
+    followerCount,
+    following: clean(input.following) || String(followingCount || ""),
+    followingCount,
+    likes: clean(input.likes) || formatFollowers(likesCount),
+    likesCount,
+    category: clean(input.category) || detectCategory(input.bio || ""),
+    email: clean(input.email),
+    location: clean(input.location) || [clean(input.city), clean(input.state)].filter(Boolean).join(", "),
+    city: clean(input.city),
+    state: clean(input.state),
+    country: "United States",
+    bio: clean(input.bio),
+    website: clean(input.website || input.websiteLink),
+    instagram: clean(input.instagram),
+    youtube: clean(input.youtube),
+    profilePicture: clean(input.profilePicture || input.profileImage),
+    status: clean(input.status) || "Saved",
+    savedBy: clean(input.savedBy),
+    lastUpdated: clean(input.lastUpdated) || new Date().toISOString().slice(0, 10),
+    confidence: Number(input.confidence || 0),
+  };
 }
 
-function mapAllCreators(rows) {
+function detectCategory(text = "") {
+  const value = String(text).toLowerCase();
+  const rules = [
+    ["Haircare", ["hair", "wash day", "scalp", "curls"]],
+    ["Skincare", ["skin", "skincare", "sunscreen", "cleanser", "serum"]],
+    ["Cosmetics", ["makeup", "cosmetics", "lip", "foundation"]],
+    ["Personal Care", ["body care", "personal care", "deodorant", "bath"]],
+    ["Self Care", ["self care", "self-care", "wellness"]],
+    ["Beauty", ["beauty", "glow", "routine"]],
+    ["Lifestyle", ["lifestyle", "daily", "grwm"]],
+  ];
+  const match = rules.find(([, keywords]) => keywords.some((keyword) => value.includes(keyword)));
+  return match?.[0] || "Beauty";
+}
+
+function creatorToSheetRow(creator, userEmail, status = "Saved") {
+  const row = normalizeCreator(creator);
+  return [
+    new Date().toISOString().slice(0, 10),
+    row.name,
+    row.username,
+    row.tiktokLink,
+    row.followers,
+    row.following,
+    row.likes,
+    row.category,
+    row.email,
+    row.location,
+    row.state,
+    "United States",
+    row.bio,
+    row.website,
+    row.instagram,
+    row.youtube,
+    status,
+    userEmail,
+    row.lastUpdated,
+  ];
+}
+
+function mapSheetCreators(rows) {
   const headerIndex = rows.findIndex((row) => clean(row[0]).toLowerCase() === "creator id");
   const dataRows = rows.slice(headerIndex >= 0 ? headerIndex + 1 : 1);
-  return dataRows.filter((row) => row.some(Boolean)).map((row) => ({
-    creatorId: clean(row[0]),
-    name: clean(row[1]),
-    followers: clean(row[2]),
-    followerCount: parseFollowers(row[2]),
-    tiktokLink: clean(row[3]),
-    category: clean(row[4]),
-    country: clean(row[5]),
-    lastUpdated: clean(row[6]),
-  }));
+  return dataRows
+    .filter((row) => row.some(Boolean))
+    .map((row) =>
+      normalizeCreator({
+        creatorId: row[0],
+        name: row[1],
+        username: row[2],
+        tiktokLink: row[3],
+        followers: row[4],
+        following: row[5],
+        likes: row[6],
+        category: row[7],
+        email: row[8],
+        location: row[9],
+        state: row[10],
+        country: row[11],
+        bio: row[12],
+        website: row[13],
+        instagram: row[14],
+        youtube: row[15],
+        profilePicture: row[16],
+        lastUpdated: row[17],
+      }),
+    );
 }
 
 function mapSavedRows(rows, email) {
-  return rows.slice(1).filter((row) => row.some(Boolean)).map((row, index) => ({
-    rowNumber: index + 2,
-    dateSaved: clean(row[0]),
-    name: clean(row[1]),
-    followers: clean(row[2]),
-    followerCount: parseFollowers(row[2]),
-    tiktokLink: clean(row[3]),
-    status: clean(row[4]) || "Saved",
-    notes: clean(row[5]),
-    savedBy: clean(row[6]) || email,
-  }));
+  return rows.slice(1).filter((row) => row.some(Boolean)).map((row, index) =>
+    normalizeCreator({
+      rowNumber: index + 2,
+      dateSaved: row[0],
+      name: row[1],
+      username: row[2],
+      tiktokLink: row[3],
+      followers: row[4],
+      following: row[5],
+      likes: row[6],
+      category: row[7],
+      email: row[8],
+      location: row[9],
+      state: row[10],
+      country: row[11],
+      bio: row[12],
+      website: row[13],
+      instagram: row[14],
+      youtube: row[15],
+      status: row[16],
+      savedBy: row[17] || email,
+      lastUpdated: row[18],
+    }),
+  );
+}
+
+function duplicateKey(creator) {
+  const row = normalizeCreator(creator);
+  return `${row.username}|${row.tiktokLink}`.toLowerCase();
+}
+
+function logActivity(email, action, detail = "") {
+  const logs = memory.logsByEmail.get(email) || [];
+  logs.unshift({
+    action,
+    detail,
+    actor: email,
+    createdAt: new Date().toISOString(),
+  });
+  memory.logsByEmail.set(email, logs.slice(0, 100));
 }
 
 async function authorizedUsers() {
   if (!sheetsEnabled()) return sampleAuthorizedUsers;
   const usersByEmail = new Map();
-
   const adminRows = await values("'Admin'!A:C");
   for (const row of adminRows) {
     const gmail = clean(row[0]).toLowerCase();
@@ -395,167 +748,119 @@ async function authorizedUsers() {
       status: "Active",
     });
   }
-
-  const authorizedRows = await values("'Authorized Users'!A:D");
-  for (const row of authorizedRows.slice(1).filter((item) => item.some(Boolean))) {
-    const gmail = clean(row[0]).toLowerCase();
-    if (!looksLikeEmail(gmail) || usersByEmail.has(gmail)) continue;
-    usersByEmail.set(gmail, {
-      gmail,
-      name: clean(row[1]) || nameFromEmail(gmail),
-      role: clean(row[2]) || "User",
-      status: clean(row[3]) || "Disabled",
-    });
-  }
-
   return [...usersByEmail.values()];
 }
 
 async function authorizeEmail(email) {
   const users = await authorizedUsers();
   const user = users.find((item) => item.gmail === email.toLowerCase());
-  if (!user || user.status !== "Active") return null;
-  return {
-    email: user.gmail,
-    name: user.name || user.gmail,
-    role: user.role === "Admin" ? "Admin" : "User",
-  };
+  if (!user || user.status !== "Active" || user.role !== "Admin") return null;
+  return { email: user.gmail, name: user.name || user.gmail, role: "Admin" };
 }
 
-async function allCreators(query = {}) {
-  const rows = sheetsEnabled()
-    ? mapAllCreators(await values("'All Creators'!A:G"))
-    : sampleCreators;
-  const search = clean(query.search).toLowerCase();
-  const minFollowers = parseFollowers(query.minFollowers);
-  const maxFollowers = parseFollowers(query.maxFollowers);
-  const category = clean(query.category);
-  return rows.filter((creator) => {
-    const matchesSearch =
-      !search ||
-      [creator.name, creator.category, creator.country, creator.tiktokLink]
-        .join(" ")
-        .toLowerCase()
-        .includes(search);
-    const matchesFollowers = !minFollowers || creator.followerCount >= minFollowers;
-    const matchesMaxFollowers = !maxFollowers || creator.followerCount <= maxFollowers;
-    const matchesCategory = !category || category === "All" || creator.category === category;
-    return matchesSearch && matchesFollowers && matchesMaxFollowers && matchesCategory;
-  });
+async function allRawCreators() {
+  if (!sheetsEnabled()) return sampleCreators;
+  const rows = await values("'All Creators'!A:R");
+  const mapped = mapSheetCreators(rows);
+  return mapped.length ? mapped : sampleCreators;
 }
 
 async function savedCreators(email) {
-  const title = savedSheetName(email);
-  if (!sheetsEnabled()) {
-    return memory.savedByEmail.get(email) || [];
-  }
-  await ensureSheet(title, [
-    "Date Saved",
-    "Creator Name",
-    "Followers",
-    "TikTok Link",
-    "Status",
-    "Notes",
-    "Saved By",
-  ]);
-  return mapSavedRows(await values(`'${title}'!A:G`), email);
+  if (!sheetsEnabled()) return memory.savedByEmail.get(email) || [];
+  await ensureSheet(savedSheetName(email), sheetHeaders);
+  return mapSavedRows(await values(`'${savedSheetName(email)}'!A:S`), email);
 }
 
-async function teamDuplicateWarning(tiktokLink, email) {
-  if (!sheetsEnabled()) return false;
-  const metadata = await getSheetMetadata();
-  const savedTabs =
-    metadata
-      ?.map((sheet) => sheet.properties?.title)
-      .filter((title) => title?.startsWith("Saved -") && title !== savedSheetName(email)) || [];
-  for (const tab of savedTabs) {
-    const rows = await values(`'${tab}'!A:G`);
-    if (mapSavedRows(rows, "").some((creator) => creator.tiktokLink === tiktokLink)) {
-      return true;
-    }
+async function skippedCreators(email) {
+  if (!sheetsEnabled()) return memory.skippedByEmail.get(email) || [];
+  await ensureSheet(skippedSheetName(email), sheetHeaders);
+  return mapSavedRows(await values(`'${skippedSheetName(email)}'!A:S`), email);
+}
+
+async function availableCreators(email, query = {}) {
+  const rows = await allRawCreators();
+  const savedKeys = new Set((await savedCreators(email)).map(duplicateKey));
+  const skippedKeys = new Set((await skippedCreators(email)).map(duplicateKey));
+  const search = clean(query.search).toLowerCase();
+  const minFollowers = parseFollowers(query.minFollowers || 2000);
+  const maxFollowers = parseFollowers(query.maxFollowers || 20000);
+  const category = clean(query.category);
+  const state = clean(query.state);
+  const emailOnly = query.emailOnly === "true";
+  const sort = clean(query.sort);
+
+  const filtered = rows.filter((creator) => {
+    const row = normalizeCreator(creator);
+    const key = duplicateKey(row);
+    const haystack = [row.name, row.username, row.location, row.state, row.category, row.bio]
+      .join(" ")
+      .toLowerCase();
+    return (
+      row.country === "United States" &&
+      row.followerCount >= minFollowers &&
+      row.followerCount <= maxFollowers &&
+      allowedCategories.includes(row.category) &&
+      !savedKeys.has(key) &&
+      !skippedKeys.has(key) &&
+      (!search || haystack.includes(search)) &&
+      (!category || category === "All" || row.category === category) &&
+      (!state || state === "All" || row.state === state) &&
+      (!emailOnly || Boolean(row.email))
+    );
+  });
+
+  if (sort === "lowest") filtered.sort((a, b) => a.followerCount - b.followerCount);
+  if (sort === "highest") filtered.sort((a, b) => b.followerCount - a.followerCount);
+  if (sort === "newest" || sort === "updated") {
+    filtered.sort((a, b) => String(b.lastUpdated).localeCompare(String(a.lastUpdated)));
   }
-  return false;
+  return filtered;
 }
 
 async function saveCreatorForUser(email, creator) {
+  const row = normalizeCreator(creator);
   const existing = await savedCreators(email);
-  const tiktokLink = clean(creator.tiktokLink);
-  if (existing.some((item) => item.tiktokLink === tiktokLink)) {
-    return { duplicate: true, message: "You already saved this creator." };
+  if (existing.some((item) => duplicateKey(item) === duplicateKey(row))) {
+    logActivity(email, "Duplicate Detection", `Duplicate skipped: @${row.username}`);
+    return { duplicate: true, message: "Creator already saved." };
   }
 
-  const row = {
-    dateSaved: new Date().toISOString().slice(0, 10),
-    name: clean(creator.name),
-    followers: clean(creator.followers),
-    followerCount: parseFollowers(creator.followers),
-    tiktokLink,
-    status: clean(creator.status) || "Saved",
-    notes: clean(creator.notes),
-    savedBy: email,
-  };
-
   if (sheetsEnabled()) {
-    const title = savedSheetName(email);
-    await ensureSheet(title, [
-      "Date Saved",
-      "Creator Name",
-      "Followers",
-      "TikTok Link",
-      "Status",
-      "Notes",
-      "Saved By",
-    ]);
-    await appendRow(title, [
-      row.dateSaved,
-      row.name,
-      row.followers,
-      row.tiktokLink,
-      row.status,
-      row.notes,
-      row.savedBy,
-    ]);
+    await ensureSheet(savedSheetName(email), sheetHeaders);
+    await appendRow(savedSheetName(email), creatorToSheetRow(row, email, row.status || "Saved"));
   } else {
     const rows = memory.savedByEmail.get(email) || [];
-    rows.push({ ...row, rowNumber: rows.length + 2 });
+    rows.push({ ...row, status: row.status || "Saved", savedBy: email, dateSaved: new Date().toISOString().slice(0, 10) });
     memory.savedByEmail.set(email, rows);
   }
-
-  return {
-    creator: row,
-    teamDuplicateWarning: await teamDuplicateWarning(tiktokLink, email),
-  };
+  logActivity(email, "Save Creator", `Saved @${row.username}`);
+  return { creator: row };
 }
 
-async function updateSavedForUser(email, payload) {
-  const rows = await savedCreators(email);
-  const target = rows.find((row) => row.tiktokLink === clean(payload.tiktokLink));
-  if (!target) return null;
-
-  const next = {
-    ...target,
-    status: savedStatuses.includes(payload.status) ? payload.status : target.status,
-    notes: payload.notes === undefined ? target.notes : clean(payload.notes),
-  };
-
-  if (sheetsEnabled()) {
-    await updateRow(savedSheetName(email), target.rowNumber, [
-      next.dateSaved,
-      next.name,
-      next.followers,
-      next.tiktokLink,
-      next.status,
-      next.notes,
-      next.savedBy,
-    ]);
-  } else {
-    memory.savedByEmail.set(
-      email,
-      rows.map((row) => (row.tiktokLink === next.tiktokLink ? next : row)),
-    );
+async function skipCreatorForUser(email, creator) {
+  const row = normalizeCreator({ ...creator, status: "Skipped" });
+  const existing = await skippedCreators(email);
+  if (existing.some((item) => duplicateKey(item) === duplicateKey(row))) {
+    return { duplicate: true, message: "Creator already skipped." };
   }
+  if (sheetsEnabled()) {
+    await ensureSheet(skippedSheetName(email), sheetHeaders);
+    await appendRow(skippedSheetName(email), creatorToSheetRow(row, email, "Skipped"));
+  } else {
+    const rows = memory.skippedByEmail.get(email) || [];
+    rows.push({ ...row, status: "Skipped", savedBy: email, dateSaved: new Date().toISOString().slice(0, 10) });
+    memory.skippedByEmail.set(email, rows);
+  }
+  logActivity(email, "Skip Creator", `Skipped @${row.username}`);
+  return { creator: row };
+}
 
-  return next;
+function deleteFromMemory(map, email, key) {
+  const rows = map.get(email) || [];
+  map.set(
+    email,
+    rows.filter((row) => duplicateKey(row) !== key),
+  );
 }
 
 app.get("/api/health", (_request, response) => {
@@ -564,6 +869,8 @@ app.get("/api/health", (_request, response) => {
     storage: sheetsEnabled() ? "google-sheets" : "demo-memory",
     spreadsheetId,
     googleLoginConfigured: Boolean(googleClientId),
+    publicAccess,
+    providerConfigured: Boolean(process.env.CREATOR_DATA_PROVIDER_API_KEY),
   });
 });
 
@@ -585,7 +892,7 @@ app.post("/api/auth/google", async (request, response) => {
     }
     const user = await authorizeEmail(email);
     if (!user) {
-      response.status(403).json({ error: "Access Denied. Your account is not authorized." });
+      response.status(403).json({ error: "Access Denied" });
       return;
     }
     response.json({ token: signSession(user), user });
@@ -594,30 +901,27 @@ app.post("/api/auth/google", async (request, response) => {
   }
 });
 
-app.post("/api/auth/demo", async (_request, response) => {
-  if (process.env.NODE_ENV === "production") {
-    response.status(404).json({ error: "Demo login is disabled in production." });
-    return;
-  }
-  const user = { email: "admin@example.com", name: "Admin User", role: "Admin" };
-  response.json({ token: signSession(user), user });
-});
-
 app.get("/api/me", requireUser, (request, response) => {
   response.json({ user: request.user, statuses: savedStatuses });
 });
 
-app.get("/api/creators", requireUser, async (request, response) => {
+app.get("/api/creators", requireUser, requireAdmin, async (request, response) => {
   try {
-    const creators = await allCreators(request.query);
-    const categories = [...new Set((await allCreators()).map((creator) => creator.category).filter(Boolean))];
-    response.json({ creators, categories, statuses: savedStatuses });
+    const creators = await availableCreators(request.user.email, request.query);
+    const all = await allRawCreators();
+    response.json({
+      creators,
+      categories: allowedCategories,
+      states: [...new Set(all.map((creator) => creator.state).filter(Boolean))].sort(),
+      statuses: savedStatuses,
+      source: process.env.CREATOR_DATA_PROVIDER_API_KEY ? "provider-ready" : "starter-dataset",
+    });
   } catch (error) {
     response.status(500).json({ error: error.message });
   }
 });
 
-app.get("/api/saved", requireUser, async (request, response) => {
+app.get("/api/saved", requireUser, requireAdmin, async (request, response) => {
   try {
     response.json({ creators: await savedCreators(request.user.email), statuses: savedStatuses });
   } catch (error) {
@@ -625,7 +929,7 @@ app.get("/api/saved", requireUser, async (request, response) => {
   }
 });
 
-app.post("/api/saved", requireUser, async (request, response) => {
+app.post("/api/saved", requireUser, requireAdmin, async (request, response) => {
   try {
     const result = await saveCreatorForUser(request.user.email, request.body);
     response.status(result.duplicate ? 409 : 201).json(result);
@@ -634,49 +938,88 @@ app.post("/api/saved", requireUser, async (request, response) => {
   }
 });
 
-app.patch("/api/saved", requireUser, async (request, response) => {
+app.delete("/api/saved", requireUser, requireAdmin, async (request, response) => {
   try {
-    const creator = await updateSavedForUser(request.user.email, request.body);
-    if (!creator) {
-      response.status(404).json({ error: "Saved creator not found." });
+    if (sheetsEnabled()) {
+      response.status(501).json({ error: "Delete from Google Sheets is not enabled yet. Remove it in the sheet." });
       return;
     }
-    response.json({ creator });
+    deleteFromMemory(memory.savedByEmail, request.user.email, duplicateKey(request.body));
+    logActivity(request.user.email, "Delete Creator", `Deleted ${request.body.username || request.body.tiktokLink}`);
+    response.json({ ok: true });
   } catch (error) {
     response.status(500).json({ error: error.message });
   }
 });
 
-app.get("/api/admin", requireUser, requireAdmin, async (_request, response) => {
+app.get("/api/skipped", requireUser, requireAdmin, async (request, response) => {
+  try {
+    response.json({ creators: await skippedCreators(request.user.email) });
+  } catch (error) {
+    response.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/skipped", requireUser, requireAdmin, async (request, response) => {
+  try {
+    const result = await skipCreatorForUser(request.user.email, request.body);
+    response.status(result.duplicate ? 409 : 201).json(result);
+  } catch (error) {
+    response.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/skipped/restore", requireUser, requireAdmin, async (request, response) => {
+  try {
+    if (!sheetsEnabled()) {
+      deleteFromMemory(memory.skippedByEmail, request.user.email, duplicateKey(request.body));
+    }
+    logActivity(request.user.email, "Restore Skipped", `Restored ${request.body.username || request.body.tiktokLink}`);
+    response.json({ ok: true });
+  } catch (error) {
+    response.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/admin", requireUser, requireAdmin, async (request, response) => {
   try {
     const users = await authorizedUsers();
-    const creators = await allCreators();
-    const savedCounts = [];
-    for (const user of users.filter((item) => item.status === "Active")) {
-      savedCounts.push({
-        gmail: user.gmail,
-        name: user.name,
-        count: (await savedCreators(user.gmail)).length,
-      });
-    }
+    const creators = await availableCreators(request.user.email, {});
+    const saved = await savedCreators(request.user.email);
+    const skipped = await skippedCreators(request.user.email);
     response.json({
       users,
-      totalCreators: creators.length,
-      savedCounts,
-      activeUsers: users.filter((user) => user.status === "Active").length,
-      disabledUsers: users.filter((user) => user.status !== "Active").length,
+      creatorsFound: creators.length,
+      creatorsSaved: saved.length,
+      creatorsSkipped: skipped.length,
+      googleSyncSuccess: sheetsEnabled(),
+      duplicateRemoved: 0,
+      todaysSaves: saved.filter((creator) => creator.dateSaved === new Date().toISOString().slice(0, 10)).length,
+      logs: memory.logsByEmail.get(request.user.email) || [],
     });
   } catch (error) {
     response.status(500).json({ error: error.message });
   }
 });
 
-app.post("/api/sheets/sync", requireUser, async (_request, response) => {
+app.post("/api/provider/refresh", requireUser, requireAdmin, async (request, response) => {
+  logActivity(request.user.email, "Provider Refresh", "Refresh requested");
+  response.json({
+    ok: true,
+    mode: process.env.CREATOR_DATA_PROVIDER_API_KEY ? "provider-ready" : "starter-dataset",
+    note: "Connect an approved TikTok creator data provider API key to enable automatic refresh.",
+  });
+});
+
+app.post("/api/sheets/sync", requireUser, requireAdmin, async (request, response) => {
+  logActivity(request.user.email, "Google Sync", "Manual sync requested");
   response.json({
     ok: true,
     spreadsheetId,
-    personalTab: savedSheetName(_request.user.email),
+    personalTab: savedSheetName(request.user.email),
+    skippedTab: skippedSheetName(request.user.email),
     mode: sheetsEnabled() ? "google-sheets" : "demo-memory",
+    columns: sheetHeaders,
   });
 });
 
