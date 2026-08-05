@@ -47,7 +47,10 @@ const tiktokResearchMaxFollowers = Math.max(
 );
 const keyApiBaseUrl = (process.env.KEYAPI_BASE_URL || "https://api.keyapi.ai").replace(/\/+$/, "");
 const keyApiKey = process.env.KEYAPI_API_KEY || process.env.CREATOR_DATA_PROVIDER_API_KEY || "";
-const keyApiKeywords = (process.env.KEYAPI_KEYWORDS || tiktokResearchKeywords.join(","))
+const keyApiKeywords = (
+  process.env.KEYAPI_KEYWORDS ||
+  "beauty,beauty creator,skincare,skin care,makeup,haircare,self care,personal care,lifestyle,beauty products,care products,grwm"
+)
   .split(",")
   .map((item) => item.trim())
   .filter(Boolean)
@@ -59,6 +62,10 @@ const keyApiMaxTotal = Math.max(
 const keyApiSuggestionCount = Math.max(
   5,
   Math.min(Number(process.env.KEYAPI_SUGGESTION_COUNT || 10), 50),
+);
+const keyApiVideoLookupLimit = Math.max(
+  0,
+  Math.min(Number(process.env.KEYAPI_VIDEO_LOOKUP_LIMIT || 30), 200),
 );
 
 const allowedCategories = [
@@ -721,13 +728,13 @@ function normalizeCreator(input = {}) {
 function detectCategory(text = "") {
   const value = String(text).toLowerCase();
   const rules = [
-    ["Haircare", ["hair", "wash day", "scalp", "curls"]],
-    ["Skincare", ["skin", "skincare", "sunscreen", "cleanser", "serum"]],
-    ["Cosmetics", ["makeup", "cosmetics", "lip", "foundation"]],
-    ["Personal Care", ["body care", "personal care", "deodorant", "bath"]],
-    ["Self Care", ["self care", "self-care", "wellness"]],
-    ["Beauty", ["beauty", "glow", "routine"]],
-    ["Lifestyle", ["lifestyle", "daily", "grwm"]],
+    ["Haircare", ["hair", "haircare", "hair care", "wash day", "scalp", "curls"]],
+    ["Skincare", ["skin", "skincare", "skin care", "sunscreen", "cleanser", "serum"]],
+    ["Cosmetics", ["makeup", "cosmetics", "lip", "foundation", "glam"]],
+    ["Personal Care", ["body care", "bodycare", "personal care", "care products", "deodorant", "bath"]],
+    ["Self Care", ["self care", "selfcare", "self-care", "wellness"]],
+    ["Beauty", ["beauty", "glow", "routine", "beauty products"]],
+    ["Lifestyle", ["lifestyle", "daily", "daily routine", "vlog", "grwm", "fashion"]],
   ];
   const match = rules.find(([, keywords]) => keywords.some((keyword) => value.includes(keyword)));
   return match?.[0] || "Beauty";
@@ -753,6 +760,134 @@ function numberFromAny(value) {
   return parseFollowers(value);
 }
 
+const usStates = [
+  "Alabama",
+  "Alaska",
+  "Arizona",
+  "Arkansas",
+  "California",
+  "Colorado",
+  "Connecticut",
+  "Delaware",
+  "Florida",
+  "Georgia",
+  "Hawaii",
+  "Idaho",
+  "Illinois",
+  "Indiana",
+  "Iowa",
+  "Kansas",
+  "Kentucky",
+  "Louisiana",
+  "Maine",
+  "Maryland",
+  "Massachusetts",
+  "Michigan",
+  "Minnesota",
+  "Mississippi",
+  "Missouri",
+  "Montana",
+  "Nebraska",
+  "Nevada",
+  "New Hampshire",
+  "New Jersey",
+  "New Mexico",
+  "New York",
+  "North Carolina",
+  "North Dakota",
+  "Ohio",
+  "Oklahoma",
+  "Oregon",
+  "Pennsylvania",
+  "Rhode Island",
+  "South Carolina",
+  "South Dakota",
+  "Tennessee",
+  "Texas",
+  "Utah",
+  "Vermont",
+  "Virginia",
+  "Washington",
+  "West Virginia",
+  "Wisconsin",
+  "Wyoming",
+];
+
+const usStateAbbreviations = {
+  AL: "Alabama",
+  AK: "Alaska",
+  AZ: "Arizona",
+  AR: "Arkansas",
+  CA: "California",
+  CO: "Colorado",
+  CT: "Connecticut",
+  DE: "Delaware",
+  FL: "Florida",
+  GA: "Georgia",
+  HI: "Hawaii",
+  ID: "Idaho",
+  IL: "Illinois",
+  IN: "Indiana",
+  IA: "Iowa",
+  KS: "Kansas",
+  KY: "Kentucky",
+  LA: "Louisiana",
+  ME: "Maine",
+  MD: "Maryland",
+  MA: "Massachusetts",
+  MI: "Michigan",
+  MN: "Minnesota",
+  MS: "Mississippi",
+  MO: "Missouri",
+  MT: "Montana",
+  NE: "Nebraska",
+  NV: "Nevada",
+  NH: "New Hampshire",
+  NJ: "New Jersey",
+  NM: "New Mexico",
+  NY: "New York",
+  NC: "North Carolina",
+  ND: "North Dakota",
+  OH: "Ohio",
+  OK: "Oklahoma",
+  OR: "Oregon",
+  PA: "Pennsylvania",
+  RI: "Rhode Island",
+  SC: "South Carolina",
+  SD: "South Dakota",
+  TN: "Tennessee",
+  TX: "Texas",
+  UT: "Utah",
+  VT: "Vermont",
+  VA: "Virginia",
+  WA: "Washington",
+  WV: "West Virginia",
+  WI: "Wisconsin",
+  WY: "Wyoming",
+};
+
+function extractEmail(text = "") {
+  const match = String(text).match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match?.[0] || "";
+}
+
+function extractBioLocation(text = "") {
+  const value = String(text);
+  const lower = value.toLowerCase();
+  const state = usStates.find((item) => lower.includes(item.toLowerCase()));
+  if (state) return { state, location: state, locationStatus: "Bio-stated location" };
+  const abbreviationMatch = value.match(/\b([A-Z]{2})\b/g) || [];
+  const abbreviation = abbreviationMatch.find((item) => usStateAbbreviations[item]);
+  if (abbreviation) {
+    return {
+      state: usStateAbbreviations[abbreviation],
+      location: usStateAbbreviations[abbreviation],
+      locationStatus: "Bio-stated location",
+    };
+  }
+  return { state: "", location: "", locationStatus: "Verified US region" };
+}
+
 function firstValue(source, keys) {
   for (const key of keys) {
     const value = source?.[key];
@@ -775,6 +910,29 @@ function imageUrlFromAny(value) {
 function keyApiRegionAllowed(region) {
   const normalized = clean(region).toUpperCase();
   return !normalized || normalized === "US" || normalized === "USA" || normalized === "UNITED STATES";
+}
+
+function keyApiPrivateAccount(input) {
+  return [
+    "is_private_account",
+    "private_account",
+    "secret",
+    "is_secret",
+  ].some((key) => input?.[key] === 1 || input?.[key] === true || input?.[key] === "1");
+}
+
+function keyApiVideoText(videos = []) {
+  return videos
+    .map((video) =>
+      [
+        video.video_desc,
+        video.video_description,
+        video.desc,
+        video.title,
+        Array.isArray(video.hashtag_names) ? video.hashtag_names.join(" ") : "",
+      ].join(" "),
+    )
+    .join(" ");
 }
 
 function collectInfluencerLikeObjects(value, results = []) {
@@ -861,7 +1019,28 @@ async function keyApiInfluencerRegion(uniqueId) {
   }
 }
 
-function creatorFromKeyApiInfluencer(input) {
+async function keyApiInfluencerVideos(uniqueId, userId = "") {
+  const attempts = [
+    ["/v1/tiktok/influencer/videos", { unique_id: uniqueId, offset: 0 }],
+    ["/v1/tiktok/influencer/videos", { user_id: userId, offset: 0 }],
+    ["/v1/tiktok/influencer/videos/analytics", { unique_id: uniqueId }],
+    ["/v1/tiktok/influencer/videos/analytics", { handle: uniqueId }],
+    ["/v1/tiktok/influencer/videos/analytics", { user_ids: userId }],
+  ].filter(([, params]) => Object.values(params).some(Boolean));
+
+  for (const [path, params] of attempts) {
+    try {
+      const payload = await keyApiGet(path, params);
+      const data = payload.data?.videos || payload.data?.aweme_list || payload.data?.items || payload.data;
+      if (Array.isArray(data)) return data.slice(0, 12);
+    } catch (error) {
+      console.warn(`KeyAPI videos failed for @${uniqueId} via ${path}: ${error.message}`);
+    }
+  }
+  return [];
+}
+
+function creatorFromKeyApiInfluencer(input, videos = []) {
   const username = clean(
     firstValue(input, ["unique_id", "username", "handle", "sec_uid", "user_name"]),
   )
@@ -876,9 +1055,10 @@ function creatorFromKeyApiInfluencer(input) {
   const likesCount = numberFromAny(
     firstValue(input, ["total_likes_cnt", "total_digg_cnt", "likes_count", "digg_count", "likes", "likesCount"]),
   );
-  const bio = clean(firstValue(input, ["signature", "bio", "bio_description", "description"]));
-  const category = detectCategory([bio, firstValue(input, ["category", "most_category_product"])].join(" "));
+  const bio = clean(firstValue(input, ["signature", "bio", "bio_description", "description", "search_user_desc"]));
+  const category = detectCategory([bio, keyApiVideoText(videos), firstValue(input, ["category", "most_category_product"])].join(" "));
   const region = clean(firstValue(input, ["region", "region_code", "country", "account_region"])).toUpperCase();
+  const location = extractBioLocation(bio);
   const avatar = imageUrlFromAny(
     firstValue(input, ["avatar", "avatar_url", "profile_pic_url"]) ||
       input.avatar_larger ||
@@ -899,12 +1079,12 @@ function creatorFromKeyApiInfluencer(input) {
     likes: likesCount ? formatFollowers(likesCount) : "",
     likesCount,
     category,
-    email: clean(firstValue(input, ["contact_email", "email", "public_email"])),
-    location: region === "US" ? "" : clean(firstValue(input, ["location"])),
+    email: clean(firstValue(input, ["contact_email", "email", "public_email"])) || extractEmail(bio),
+    location: clean(firstValue(input, ["location"])) || location.location,
     city: "",
-    state: "",
+    state: location.state,
     country: "United States",
-    bio,
+    bio: location.locationStatus ? `${bio}`.trim() : bio,
     website: clean(firstValue(input, ["bio_url", "website", "url"])),
     instagram: "",
     youtube: "",
@@ -925,13 +1105,21 @@ async function refreshKeyApiCreators() {
   let suggestedPages = 0;
   let detailLookups = 0;
   let regionLookups = 0;
+  let videoLookups = 0;
 
-  async function considerInfluencer(object) {
+  async function considerInfluencer(object, options = {}) {
+    if (keyApiPrivateAccount(object)) return;
     const region =
       clean(firstValue(object, ["region", "region_code", "country", "account_region"])) ||
       (object.unique_id || object.username ? await keyApiInfluencerRegion(object.unique_id || object.username) : "");
     if (!keyApiRegionAllowed(region)) return;
-    const creator = creatorFromKeyApiInfluencer({ ...object, region });
+    const username = clean(firstValue(object, ["unique_id", "username", "handle", "user_name"])).replace(/^@/, "").toLowerCase();
+    let videos = options.videos || [];
+    if (!videos.length && username && videoLookups < keyApiVideoLookupLimit) {
+      videoLookups += 1;
+      videos = await keyApiInfluencerVideos(username, firstValue(object, ["user_id", "uid", "id"]));
+    }
+    const creator = creatorFromKeyApiInfluencer({ ...object, region, unique_id: username || object.unique_id }, videos);
     if (
       creator.username &&
       creator.followerCount >= tiktokResearchMinFollowers &&
@@ -958,7 +1146,7 @@ async function refreshKeyApiCreators() {
       for (const object of objects) {
         const username = clean(firstValue(object, ["unique_id", "username", "handle", "user_name"])).replace(/^@/, "").toLowerCase();
         if (username) candidateUsernames.add(username);
-        await considerInfluencer(object);
+        await considerInfluencer(object, { videos: [] });
       }
       const nextCursor = Number(payload.data?.cursor || payload.cursor || 0);
       keepGoing = nextCursor && nextCursor !== offset && objects.length > 0;
@@ -1004,6 +1192,7 @@ async function refreshKeyApiCreators() {
     suggestedPages,
     detailLookups,
     regionLookups,
+    videoLookups,
     updatedAt: memory.providerUpdatedAt,
     sheetSynced,
   };
@@ -1637,6 +1826,7 @@ app.post("/api/provider/refresh", requireUser, requireAdmin, async (request, res
       suggestedPages: result.suggestedPages || 0,
       detailLookups: result.detailLookups || 0,
       regionLookups: result.regionLookups || 0,
+      videoLookups: result.videoLookups || 0,
       usernamesScanned: result.usernamesScanned,
       updatedAt: result.updatedAt,
       sheetSynced: result.sheetSynced,
