@@ -27,6 +27,7 @@ const statuses = ["Saved", "Already Messaged", "Approved", "Not Approved", "Reje
 const tabs = [
   ["dashboard", "Dashboard"],
   ["available", "Available Creators"],
+  ["tiktok", "TikTok Search"],
   ["saved", "Saved Creators"],
   ["skipped", "Skipped Creators"],
   ["settings", "Settings"],
@@ -159,6 +160,10 @@ function parseManualCreators(text = "") {
 function dateLabel(value) {
   if (!value) return "";
   return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
+}
+
+function tiktokSearchUrl(keyword) {
+  return `https://www.tiktok.com/search/user?q=${encodeURIComponent(keyword || "beauty creator")}`;
 }
 
 function normalizeCreator(creator) {
@@ -364,6 +369,7 @@ function App() {
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
   const [importText, setImportText] = useState("");
+  const [tiktokKeyword, setTiktokKeyword] = useState("beauty creator");
   const [filters, setFilters] = useState({
     search: "",
     minFollowers: "2000",
@@ -678,6 +684,52 @@ function App() {
           )
         ) : null}
 
+        {activeTab === "tiktok" ? (
+          <section className="tiktok-workspace">
+            <article className="search-console">
+              <div>
+                <p className="eyebrow">Find Real TikTok Creators</p>
+                <h2>Search TikTok, then import chosen accounts</h2>
+              </div>
+              <label>
+                Keyword
+                <input
+                  onChange={(event) => setTiktokKeyword(event.target.value)}
+                  placeholder="beauty creator"
+                  value={tiktokKeyword}
+                />
+              </label>
+              <a className="button-link" href={tiktokSearchUrl(tiktokKeyword)} rel="noreferrer" target="_blank">
+                Open TikTok Search
+              </a>
+              <div className="search-link-row">
+                {manualSearchKeywords.map((keyword) => (
+                  <a
+                    className="button-link secondary"
+                    href={tiktokSearchUrl(keyword)}
+                    key={keyword}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    {keyword}
+                  </a>
+                ))}
+              </div>
+            </article>
+            <article className="import-console">
+              <h2>Import Selected Creators</h2>
+              <p>Choose accounts on TikTok that show 2K-20K followers, then paste username or profile URL plus follower count.</p>
+              <textarea
+                className="import-box large"
+                onChange={(event) => setImportText(event.target.value)}
+                placeholder={"@realcreator, 12.4K, Skincare, California\nhttps://www.tiktok.com/@anotherreal, 8K, Beauty, Texas"}
+                value={importText}
+              />
+              <button onClick={importManualCreators} type="button">Import To Creator List</button>
+            </article>
+          </section>
+        ) : null}
+
         {activeTab === "saved" ? (
           <section className="table-panel">
             <div className="panel-header">
@@ -736,7 +788,7 @@ function App() {
                 {manualSearchKeywords.map((keyword) => (
                   <a
                     className="button-link secondary"
-                    href={`https://www.tiktok.com/search/user?q=${encodeURIComponent(keyword)}`}
+                    href={tiktokSearchUrl(keyword)}
                     key={keyword}
                     rel="noreferrer"
                     target="_blank"

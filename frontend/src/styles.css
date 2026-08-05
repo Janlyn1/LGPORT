@@ -419,6 +419,45 @@ button, .button-link {
   white-space: nowrap;
 }
 
+.tiktok-workspace {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(360px, 1.2fr);
+  margin: 0 auto;
+  max-width: 1600px;
+}
+.search-console,
+.import-console {
+  background: #fff;
+  border: 1px solid var(--line-light);
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+.search-console label {
+  color: var(--muted-light);
+  display: grid;
+  font-size: 0.76rem;
+  font-weight: 850;
+  gap: 6px;
+  text-transform: uppercase;
+}
+.search-console input {
+  background: #fff;
+  border: 1px solid #cfd6dd;
+  border-radius: 7px;
+  color: var(--ink);
+  font: inherit;
+  min-height: 40px;
+  padding: 0 11px;
+  text-transform: none;
+}
+.import-console p {
+  color: var(--muted-light);
+  line-height: 1.5;
+}
+
 .settings-grid {
   display: grid;
   gap: 14px;
@@ -454,6 +493,9 @@ button, .button-link {
   resize: vertical;
   width: 100%;
 }
+.import-box.large {
+  min-height: 230px;
+}
 .log-line {
   border-top: 1px solid var(--line-light);
   color: #46515d;
@@ -466,6 +508,7 @@ button, .button-link {
   .metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .filter-bar { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tiktok-workspace,
   .settings-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 860px) {
