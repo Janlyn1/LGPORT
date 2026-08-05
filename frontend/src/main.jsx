@@ -1,9 +1,13 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
+const PUBLIC_USER = {
+  email: "janlynrustila01@gmail.com",
+  name: "Janlyn Rustila",
+  role: "Admin",
+};
 const savedStatuses = ["Saved", "Already Messaged", "Approved", "Not Approved", "Rejected"];
 
 function compactNumber(value) {
@@ -34,106 +38,27 @@ function dateLabel(value) {
   );
 }
 
-function LoginScreen({ onLogin }) {
-  const [notice, setNotice] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  async function loginWithCredential(credential) {
-    setLoading(true);
-    setNotice("");
-    try {
-      const response = await fetch(`${API_BASE}/api/auth/google`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ credential }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Unable to login.");
-      localStorage.setItem("lgport_token", data.token);
-      onLogin(data.user, data.token);
-    } catch (error) {
-      setNotice(error.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function demoLogin() {
-    setLoading(true);
-    setNotice("");
-    try {
-      const response = await fetch(`${API_BASE}/api/auth/demo`, { method: "POST" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Demo login unavailable.");
-      localStorage.setItem("lgport_token", data.token);
-      onLogin(data.user, data.token);
-    } catch (error) {
-      setNotice(error.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    if (!GOOGLE_CLIENT_ID) return;
-    const script = document.createElement("script");
-    script.src = "https://accounts.google.com/gsi/client";
-    script.async = true;
-    script.defer = true;
-    script.onload = () => {
-      window.google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: (response) => loginWithCredential(response.credential),
-      });
-      window.google.accounts.id.renderButton(document.getElementById("google-login"), {
-        theme: "outline",
-        size: "large",
-        width: 260,
-      });
-    };
-    document.body.appendChild(script);
-    return () => script.remove();
-  }, []);
-
-  return (
-    <main className="login-shell">
-      <section className="login-panel">
-        <p className="eyebrow">Private TikTok Creator Research</p>
-        <h1>Login with your authorized Google account</h1>
-        <p className="login-copy">
-          Access is checked against the `Admin` tab in the project Google Sheet.
-        </p>
-        <div id="google-login" className="google-slot" />
-        {!GOOGLE_CLIENT_ID ? (
-          <button disabled={loading} onClick={demoLogin} type="button">
-            {loading ? "Logging in" : "Use Local Demo Login"}
-          </button>
-        ) : null}
-        {notice ? <div className="notice">{notice}</div> : null}
-      </section>
-    </main>
-  );
-}
-
-function Dashboard({ user, token, onLogout }) {
+function Dashboard({ user, token }) {
   const [creators, setCreators] = useState([]);
   const [savedCreators, setSavedCreators] = useState([]);
   const [categories, setCategories] = useState([]);
   const [admin, setAdmin] = useState(null);
-  const [search, setSearch] = useState("skincare");
-  const [minFollowers, setMinFollowers] = useState("100000");
+  const [search, setSearch] = useState("");
+  const [minFollowers, setMinFollowers] = useState("2000");
+  const [maxFollowers, setMaxFollowers] = useState("20000");
   const [category, setCategory] = useState("All");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
 
   async function api(path, options = {}) {
+    const headers = {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
+    };
     const response = await fetch(`${API_BASE}${path}`, {
       ...options,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        ...(options.headers || {}),
-      },
+      headers,
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Request failed.");
@@ -144,6 +69,7 @@ function Dashboard({ user, token, onLogout }) {
     const params = new URLSearchParams({
       search,
       minFollowers,
+      maxFollowers,
       category,
     });
     const data = await api(`/api/creators?${params.toString()}`);
@@ -237,7 +163,6 @@ function Dashboard({ user, token, onLogout }) {
             <strong>{user.name}</strong>
             <small>{user.email}</small>
           </div>
-          <button className="text-button" onClick={onLogout} type="button">Logout</button>
         </div>
       </section>
 
@@ -255,11 +180,15 @@ function Dashboard({ user, token, onLogout }) {
       <section className="search-band">
         <label>
           Search
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="skincare" />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="beauty lifestyle" />
         </label>
         <label>
-          Minimum Followers
-          <input value={minFollowers} onChange={(event) => setMinFollowers(event.target.value)} placeholder="100000" />
+          Min Followers
+          <input value={minFollowers} onChange={(event) => setMinFollowers(event.target.value)} placeholder="2000" />
+        </label>
+        <label>
+          Max Followers
+          <input value={maxFollowers} onChange={(event) => setMaxFollowers(event.target.value)} placeholder="20000" />
         </label>
         <label>
           Category
@@ -284,7 +213,7 @@ function Dashboard({ user, token, onLogout }) {
                 <span className="avatar">{initials(creator.name)}</span>
                 <span className="creator-main">
                   <strong>{creator.name}</strong>
-                  <small>{creator.category} · {creator.country}</small>
+                  <small>{creator.category} | {creator.country}</small>
                 </span>
                 <span className="creator-meta">
                   <strong>{creator.followers || compactNumber(creator.followerCount)}</strong>
@@ -347,39 +276,7 @@ function Dashboard({ user, token, onLogout }) {
 }
 
 function App() {
-  const [token, setToken] = useState(localStorage.getItem("lgport_token") || "");
-  const [user, setUser] = useState(null);
-  const [checking, setChecking] = useState(Boolean(token));
-
-  useEffect(() => {
-    if (!token) return;
-    fetch(`${API_BASE}/api/me`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
-      .then(({ ok, data }) => {
-        if (!ok) throw new Error(data.error);
-        setUser(data.user);
-      })
-      .catch(() => {
-        localStorage.removeItem("lgport_token");
-        setToken("");
-      })
-      .finally(() => setChecking(false));
-  }, [token]);
-
-  function handleLogin(nextUser, nextToken) {
-    setUser(nextUser);
-    setToken(nextToken);
-  }
-
-  function logout() {
-    localStorage.removeItem("lgport_token");
-    setUser(null);
-    setToken("");
-  }
-
-  if (checking) return <main className="login-shell"><section className="login-panel"><h1>Checking access</h1></section></main>;
-  if (!user) return <LoginScreen onLogin={handleLogin} />;
-  return <Dashboard user={user} token={token} onLogout={logout} />;
+  return <Dashboard user={PUBLIC_USER} token="" />;
 }
 
 createRoot(document.getElementById("root")).render(<App />);

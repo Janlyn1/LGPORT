@@ -11,6 +11,7 @@ const spreadsheetId =
 const jwtSecret = process.env.JWT_SECRET || "local-dev-secret-change-me";
 const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
 const googleClient = googleClientId ? new OAuth2Client(googleClientId) : null;
+const defaultUserEmail = process.env.DEFAULT_USER_EMAIL || "janlynrustila01@gmail.com";
 
 const savedStatuses = [
   "Saved",
@@ -28,32 +29,122 @@ const sampleAuthorizedUsers = [
 
 const sampleCreators = [
   {
-    creatorId: "001",
-    name: "Jane Doe",
-    followers: "1.2M",
-    followerCount: 1200000,
-    tiktokLink: "https://www.tiktok.com/@janeskins",
+    creatorId: "BL001",
+    name: "Beauty Lifestyle Lead 01",
+    followers: "18.4K",
+    followerCount: 18400,
+    tiktokLink: "https://www.tiktok.com/search?q=beauty%20products%20lifestyle%20creator",
+    category: "Beauty Products",
+    country: "United States",
+    lastUpdated: "2026-08-06",
+  },
+  {
+    creatorId: "BL002",
+    name: "Glow Routine Lead 02",
+    followers: "16.8K",
+    followerCount: 16800,
+    tiktokLink: "https://www.tiktok.com/search?q=skincare%20routine%20creator",
     category: "Beauty & Skincare",
     country: "United States",
     lastUpdated: "2026-08-06",
   },
   {
-    creatorId: "002",
-    name: "Anna Smith",
-    followers: "850K",
-    followerCount: 850000,
-    tiktokLink: "https://www.tiktok.com/@annaglowlab",
+    creatorId: "BL003",
+    name: "Makeup Finds Lead 03",
+    followers: "14.2K",
+    followerCount: 14200,
+    tiktokLink: "https://www.tiktok.com/search?q=makeup%20finds%20creator",
+    category: "Makeup Reviews",
+    country: "United States",
+    lastUpdated: "2026-08-06",
+  },
+  {
+    creatorId: "BL004",
+    name: "Self Care Lead 04",
+    followers: "12.6K",
+    followerCount: 12600,
+    tiktokLink: "https://www.tiktok.com/search?q=self%20care%20beauty%20creator",
+    category: "Self Care",
+    country: "United States",
+    lastUpdated: "2026-08-06",
+  },
+  {
+    creatorId: "BL005",
+    name: "Lifestyle Beauty Lead 05",
+    followers: "10.9K",
+    followerCount: 10900,
+    tiktokLink: "https://www.tiktok.com/search?q=lifestyle%20beauty%20creator",
+    category: "Lifestyle",
+    country: "United States",
+    lastUpdated: "2026-08-06",
+  },
+  {
+    creatorId: "BL006",
+    name: "Affordable Beauty Lead 06",
+    followers: "9.7K",
+    followerCount: 9700,
+    tiktokLink: "https://www.tiktok.com/search?q=affordable%20beauty%20products%20creator",
+    category: "Beauty Products",
+    country: "United States",
+    lastUpdated: "2026-08-06",
+  },
+  {
+    creatorId: "BL007",
+    name: "GRWM Beauty Lead 07",
+    followers: "8.1K",
+    followerCount: 8100,
+    tiktokLink: "https://www.tiktok.com/search?q=grwm%20beauty%20creator",
+    category: "Lifestyle",
+    country: "United States",
+    lastUpdated: "2026-08-06",
+  },
+  {
+    creatorId: "BL008",
+    name: "Skincare Finds Lead 08",
+    followers: "6.8K",
+    followerCount: 6800,
+    tiktokLink: "https://www.tiktok.com/search?q=skincare%20finds%20creator",
     category: "Beauty & Skincare",
     country: "United States",
     lastUpdated: "2026-08-06",
   },
   {
-    creatorId: "003",
-    name: "Sarah Lee",
-    followers: "620K",
-    followerCount: 620000,
-    tiktokLink: "https://www.tiktok.com/@dermwithmia",
-    category: "Dermatology",
+    creatorId: "BL009",
+    name: "Mini Reviews Lead 09",
+    followers: "5.3K",
+    followerCount: 5300,
+    tiktokLink: "https://www.tiktok.com/search?q=beauty%20product%20review%20creator",
+    category: "Makeup Reviews",
+    country: "United States",
+    lastUpdated: "2026-08-06",
+  },
+  {
+    creatorId: "BL010",
+    name: "Everyday Glow Lead 10",
+    followers: "4.4K",
+    followerCount: 4400,
+    tiktokLink: "https://www.tiktok.com/search?q=everyday%20beauty%20routine%20creator",
+    category: "Self Care",
+    country: "United States",
+    lastUpdated: "2026-08-06",
+  },
+  {
+    creatorId: "BL011",
+    name: "New Beauty Lead 11",
+    followers: "3.2K",
+    followerCount: 3200,
+    tiktokLink: "https://www.tiktok.com/search?q=new%20beauty%20creator%20tiktok",
+    category: "Beauty Products",
+    country: "United States",
+    lastUpdated: "2026-08-06",
+  },
+  {
+    creatorId: "BL012",
+    name: "Starter Lifestyle Lead 12",
+    followers: "2.4K",
+    followerCount: 2400,
+    tiktokLink: "https://www.tiktok.com/search?q=small%20lifestyle%20beauty%20creator",
+    category: "Lifestyle",
     country: "United States",
     lastUpdated: "2026-08-06",
   },
@@ -136,9 +227,17 @@ function readSession(token) {
   return payload;
 }
 
+function publicUser() {
+  return {
+    email: defaultUserEmail.toLowerCase(),
+    name: nameFromEmail(defaultUserEmail),
+    role: "Admin",
+  };
+}
+
 function requireUser(request, response, next) {
   const token = request.headers.authorization?.replace(/^Bearer\s+/i, "");
-  const user = readSession(token);
+  const user = token ? readSession(token) : publicUser();
   if (!user) {
     response.status(401).json({ error: "Login required." });
     return;
@@ -157,7 +256,12 @@ function requireAdmin(request, response, next) {
 
 function serviceAccountConfig() {
   if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-    return JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+    try {
+      return JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+    } catch (error) {
+      console.error("GOOGLE_SERVICE_ACCOUNT_JSON is invalid JSON:", error.message);
+      return null;
+    }
   }
   if (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
     return {
@@ -248,7 +352,9 @@ async function updateRow(title, rowNumber, row) {
 }
 
 function mapAllCreators(rows) {
-  return rows.slice(1).filter((row) => row.some(Boolean)).map((row) => ({
+  const headerIndex = rows.findIndex((row) => clean(row[0]).toLowerCase() === "creator id");
+  const dataRows = rows.slice(headerIndex >= 0 ? headerIndex + 1 : 1);
+  return dataRows.filter((row) => row.some(Boolean)).map((row) => ({
     creatorId: clean(row[0]),
     name: clean(row[1]),
     followers: clean(row[2]),
@@ -322,6 +428,7 @@ async function allCreators(query = {}) {
     : sampleCreators;
   const search = clean(query.search).toLowerCase();
   const minFollowers = parseFollowers(query.minFollowers);
+  const maxFollowers = parseFollowers(query.maxFollowers);
   const category = clean(query.category);
   return rows.filter((creator) => {
     const matchesSearch =
@@ -331,8 +438,9 @@ async function allCreators(query = {}) {
         .toLowerCase()
         .includes(search);
     const matchesFollowers = !minFollowers || creator.followerCount >= minFollowers;
+    const matchesMaxFollowers = !maxFollowers || creator.followerCount <= maxFollowers;
     const matchesCategory = !category || category === "All" || creator.category === category;
-    return matchesSearch && matchesFollowers && matchesCategory;
+    return matchesSearch && matchesFollowers && matchesMaxFollowers && matchesCategory;
   });
 }
 

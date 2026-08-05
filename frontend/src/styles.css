@@ -47,7 +47,7 @@ h3 { color: var(--ink); font-size: 0.94rem; font-weight: 820; }
 .metric span { color: var(--muted); display: block; font-size: 0.82rem; margin-bottom: 8px; }
 .metric strong { color: var(--ink); font-size: 1.62rem; line-height: 1; }
 .notice { background: #fff7e6; border: 1px solid #f0d39a; border-radius: 8px; color: #6b4300; margin: 0 auto 16px; max-width: 1540px; padding: 12px 14px; }
-.search-band { align-items: end; background: rgba(255, 255, 255, 0.9); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); display: grid; gap: 12px; grid-template-columns: minmax(220px, 1fr) 170px 220px 160px; margin: 0 auto 16px; max-width: 1540px; padding: 16px; }
+.search-band { align-items: end; background: rgba(255, 255, 255, 0.9); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); display: grid; gap: 12px; grid-template-columns: minmax(220px, 1fr) 140px 140px 220px 160px; margin: 0 auto 16px; max-width: 1540px; padding: 16px; }
 .workspace-grid { align-items: start; display: grid; gap: 16px; grid-template-columns: minmax(460px, 1.3fr) minmax(350px, 0.85fr) minmax(330px, 0.75fr); }
 .workspace-grid.two-col { grid-template-columns: minmax(520px, 1.2fr) minmax(360px, 0.8fr); }
 .list-panel, .detail-panel, .capture-panel { background: rgba(255, 255, 255, 0.92); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); min-width: 0; }
