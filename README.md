@@ -3,7 +3,7 @@
 Private TikTok creator research website with:
 
 - Google Login
-- Google Sheets-based access control
+- Google Sheets-based access control from the `Admin` tab
 - searchable creator dashboard from `All Creators`
 - one personal saved-creators tab per Gmail user
 - status updates synced back to Google Sheets
@@ -20,11 +20,27 @@ https://docs.google.com/spreadsheets/d/1hFkdzit1hxJnbh2DXT4lUn-uCKBpXw2yeAcYF6DO
 Create these tabs in the spreadsheet:
 
 ```text
+Admin
 Authorized Users
 All Creators
 ```
 
-`Authorized Users` columns:
+`Admin` columns:
+
+```text
+Gmail | Name (optional) | Notes
+```
+
+This is the easiest access list. Put a Gmail in column A and that account can login as an admin after Google OAuth allows it.
+
+Example:
+
+```text
+janlynrustila01@gmail.com | Janlyn | Main admin
+assistant@gmail.com       |        | Can login
+```
+
+`Authorized Users` is still supported for older user/role control. Columns:
 
 ```text
 Gmail | Name | Role | Status

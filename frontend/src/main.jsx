@@ -101,7 +101,7 @@ function LoginScreen({ onLogin }) {
         <p className="eyebrow">Private TikTok Creator Research</p>
         <h1>Login with your authorized Google account</h1>
         <p className="login-copy">
-          Access is checked against the `Authorized Users` tab in the project Google Sheet.
+          Access is checked against the `Admin` tab in the project Google Sheet.
         </p>
         <div id="google-login" className="google-slot" />
         {!GOOGLE_CLIENT_ID ? (

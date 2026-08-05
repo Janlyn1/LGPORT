@@ -22,6 +22,7 @@ const savedStatuses = [
 
 const sampleAuthorizedUsers = [
   { gmail: "admin@example.com", name: "Admin User", role: "Admin", status: "Active" },
+  { gmail: "janlynrustila01@gmail.com", name: "Janlyn", role: "Admin", status: "Active" },
   { gmail: "maria@example.com", name: "Maria", role: "User", status: "Active" },
 ];
 
@@ -99,6 +100,17 @@ function slugFromEmail(email) {
 
 function savedSheetName(email) {
   return `Saved - ${slugFromEmail(email)}`.slice(0, 90);
+}
+
+function looksLikeEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean(value).toLowerCase());
+}
+
+function nameFromEmail(email) {
+  return email
+    .split("@")[0]
+    .replace(/[._-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function signSession(user) {
@@ -181,8 +193,13 @@ async function getSheetMetadata() {
 async function values(range) {
   const sheets = await sheetsClient();
   if (!sheets) return [];
-  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range });
-  return response.data.values || [];
+  try {
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range });
+    return response.data.values || [];
+  } catch (error) {
+    if (error.code === 400 || error.code === 404) return [];
+    throw error;
+  }
 }
 
 async function ensureSheet(title, headers) {
@@ -259,13 +276,33 @@ function mapSavedRows(rows, email) {
 
 async function authorizedUsers() {
   if (!sheetsEnabled()) return sampleAuthorizedUsers;
-  const rows = await values("'Authorized Users'!A:D");
-  return rows.slice(1).filter((row) => row.some(Boolean)).map((row) => ({
-    gmail: clean(row[0]).toLowerCase(),
-    name: clean(row[1]),
-    role: clean(row[2]) || "User",
-    status: clean(row[3]) || "Disabled",
-  }));
+  const usersByEmail = new Map();
+
+  const adminRows = await values("'Admin'!A:C");
+  for (const row of adminRows) {
+    const gmail = clean(row[0]).toLowerCase();
+    if (!looksLikeEmail(gmail)) continue;
+    usersByEmail.set(gmail, {
+      gmail,
+      name: clean(row[1]) || nameFromEmail(gmail),
+      role: "Admin",
+      status: "Active",
+    });
+  }
+
+  const authorizedRows = await values("'Authorized Users'!A:D");
+  for (const row of authorizedRows.slice(1).filter((item) => item.some(Boolean))) {
+    const gmail = clean(row[0]).toLowerCase();
+    if (!looksLikeEmail(gmail) || usersByEmail.has(gmail)) continue;
+    usersByEmail.set(gmail, {
+      gmail,
+      name: clean(row[1]) || nameFromEmail(gmail),
+      role: clean(row[2]) || "User",
+      status: clean(row[3]) || "Disabled",
+    });
+  }
+
+  return [...usersByEmail.values()];
 }
 
 async function authorizeEmail(email) {
