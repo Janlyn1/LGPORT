@@ -56,6 +56,10 @@ const keyApiMaxTotal = Math.max(
   20,
   Math.min(Number(process.env.KEYAPI_MAX_TOTAL || tiktokResearchMaxTotal), 1000),
 );
+const keyApiSuggestionCount = Math.max(
+  5,
+  Math.min(Number(process.env.KEYAPI_SUGGESTION_COUNT || 10), 50),
+);
 
 const allowedCategories = [
   "Beauty",
@@ -757,6 +761,22 @@ function firstValue(source, keys) {
   return "";
 }
 
+function imageUrlFromAny(value) {
+  if (!value) return "";
+  if (typeof value === "string") return clean(value);
+  if (Array.isArray(value)) return clean(value.find(Boolean));
+  if (typeof value === "object") {
+    if (Array.isArray(value.url_list)) return clean(value.url_list.find(Boolean));
+    return clean(value.url || value.uri || "");
+  }
+  return "";
+}
+
+function keyApiRegionAllowed(region) {
+  const normalized = clean(region).toUpperCase();
+  return !normalized || normalized === "US" || normalized === "USA" || normalized === "UNITED STATES";
+}
+
 function collectInfluencerLikeObjects(value, results = []) {
   if (!value || results.length >= keyApiMaxTotal * 3) return results;
   if (Array.isArray(value)) {
@@ -805,6 +825,42 @@ async function keyApiGet(path, params = {}) {
   return payload;
 }
 
+function keyApiSuggestedUsernames(payload) {
+  const suggestions = payload?.data?.sug_list || payload?.sug_list || [];
+  return suggestions
+    .map((item) => clean(item.content || item.word_record?.words_content || item.unique_id || item.username))
+    .map((item) => item.replace(/^@/, "").toLowerCase())
+    .filter(Boolean);
+}
+
+async function keyApiInfluencerDetail(uniqueId) {
+  const attempts = [
+    ["/v1/tiktok/influencer/detail", { unique_id: uniqueId }],
+    ["/v1/tiktok/influencer/detail/analytics", { unique_ids: uniqueId }],
+  ];
+  for (const [path, params] of attempts) {
+    try {
+      const payload = await keyApiGet(path, params);
+      const data = payload.data?.user || payload.data?.influencer || payload.data;
+      if (Array.isArray(data)) return data[0] || null;
+      if (data && typeof data === "object") return data;
+    } catch (error) {
+      console.warn(`KeyAPI detail failed for @${uniqueId} via ${path}: ${error.message}`);
+    }
+  }
+  return null;
+}
+
+async function keyApiInfluencerRegion(uniqueId) {
+  try {
+    const payload = await keyApiGet("/v1/tiktok/influencer/region", { unique_id: uniqueId });
+    return clean(payload.data);
+  } catch (error) {
+    console.warn(`KeyAPI region failed for @${uniqueId}: ${error.message}`);
+    return "";
+  }
+}
+
 function creatorFromKeyApiInfluencer(input) {
   const username = clean(
     firstValue(input, ["unique_id", "username", "handle", "sec_uid", "user_name"]),
@@ -822,7 +878,14 @@ function creatorFromKeyApiInfluencer(input) {
   );
   const bio = clean(firstValue(input, ["signature", "bio", "bio_description", "description"]));
   const category = detectCategory([bio, firstValue(input, ["category", "most_category_product"])].join(" "));
-  const region = clean(firstValue(input, ["region", "region_code", "country"])).toUpperCase();
+  const region = clean(firstValue(input, ["region", "region_code", "country", "account_region"])).toUpperCase();
+  const avatar = imageUrlFromAny(
+    firstValue(input, ["avatar", "avatar_url", "profile_pic_url"]) ||
+      input.avatar_larger ||
+      input.avatar_medium ||
+      input.avatar_thumb ||
+      input.avatar_300x300,
+  );
 
   return normalizeCreator({
     creatorId: clean(firstValue(input, ["user_id", "uid", "id"])) || `KEYAPI-${username}`,
@@ -845,7 +908,7 @@ function creatorFromKeyApiInfluencer(input) {
     website: clean(firstValue(input, ["bio_url", "website", "url"])),
     instagram: "",
     youtube: "",
-    profilePicture: clean(firstValue(input, ["avatar", "avatar_url", "profile_pic_url"])),
+    profilePicture: avatar,
     lastUpdated: new Date().toISOString().slice(0, 10),
     confidence: 92,
   });
@@ -857,7 +920,28 @@ async function refreshKeyApiCreators() {
   }
 
   const creatorsByKey = new Map();
+  const candidateUsernames = new Set();
   let searchedPages = 0;
+  let suggestedPages = 0;
+  let detailLookups = 0;
+  let regionLookups = 0;
+
+  async function considerInfluencer(object) {
+    const region =
+      clean(firstValue(object, ["region", "region_code", "country", "account_region"])) ||
+      (object.unique_id || object.username ? await keyApiInfluencerRegion(object.unique_id || object.username) : "");
+    if (!keyApiRegionAllowed(region)) return;
+    const creator = creatorFromKeyApiInfluencer({ ...object, region });
+    if (
+      creator.username &&
+      creator.followerCount >= tiktokResearchMinFollowers &&
+      creator.followerCount <= tiktokResearchMaxFollowers &&
+      allowedCategories.includes(creator.category)
+    ) {
+      creatorsByKey.set(duplicateKey(creator), creator);
+    }
+  }
+
   for (const keyword of keyApiKeywords) {
     let offset = 0;
     let page = 0;
@@ -872,22 +956,42 @@ async function refreshKeyApiCreators() {
       });
       const objects = collectInfluencerLikeObjects(payload.data || payload);
       for (const object of objects) {
-        const creator = creatorFromKeyApiInfluencer(object);
-        const region = clean(firstValue(object, ["region", "region_code", "country"])).toUpperCase();
-        if (
-          creator.username &&
-          (!region || region === "US" || region === "USA" || region === "UNITED STATES") &&
-          creator.followerCount >= tiktokResearchMinFollowers &&
-          creator.followerCount <= tiktokResearchMaxFollowers &&
-          allowedCategories.includes(creator.category)
-        ) {
-          creatorsByKey.set(duplicateKey(creator), creator);
-        }
+        const username = clean(firstValue(object, ["unique_id", "username", "handle", "user_name"])).replace(/^@/, "").toLowerCase();
+        if (username) candidateUsernames.add(username);
+        await considerInfluencer(object);
       }
       const nextCursor = Number(payload.data?.cursor || payload.cursor || 0);
       keepGoing = nextCursor && nextCursor !== offset && objects.length > 0;
       offset = nextCursor || offset + objects.length;
     }
+
+    try {
+      suggestedPages += 1;
+      const suggested = await keyApiGet("/v1/tiktok/suggested/users", {
+        keyword,
+        region: "US",
+        count: keyApiSuggestionCount,
+      });
+      for (const username of keyApiSuggestedUsernames(suggested)) {
+        candidateUsernames.add(username);
+      }
+    } catch (error) {
+      console.warn(`KeyAPI suggested users failed for ${keyword}: ${error.message}`);
+    }
+  }
+
+  for (const username of candidateUsernames) {
+    if (creatorsByKey.size >= keyApiMaxTotal) break;
+    if ([...creatorsByKey.values()].some((creator) => creator.username === username)) continue;
+    detailLookups += 1;
+    const detail = await keyApiInfluencerDetail(username);
+    if (!detail) continue;
+    let region = clean(firstValue(detail, ["region", "region_code", "country", "account_region"]));
+    if (!region) {
+      regionLookups += 1;
+      region = await keyApiInfluencerRegion(username);
+    }
+    await considerInfluencer({ ...detail, region, unique_id: detail.unique_id || username });
   }
 
   memory.providerCreators = [...creatorsByKey.values()].slice(0, keyApiMaxTotal);
@@ -897,6 +1001,9 @@ async function refreshKeyApiCreators() {
   return {
     creators: memory.providerCreators,
     searchedPages,
+    suggestedPages,
+    detailLookups,
+    regionLookups,
     updatedAt: memory.providerUpdatedAt,
     sheetSynced,
   };
@@ -1527,6 +1634,9 @@ app.post("/api/provider/refresh", requireUser, requireAdmin, async (request, res
       creatorsImported: result.creators.length,
       videosScanned: result.videosScanned || 0,
       searchedPages: result.searchedPages || 0,
+      suggestedPages: result.suggestedPages || 0,
+      detailLookups: result.detailLookups || 0,
+      regionLookups: result.regionLookups || 0,
       usernamesScanned: result.usernamesScanned,
       updatedAt: result.updatedAt,
       sheetSynced: result.sheetSynced,
