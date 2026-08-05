@@ -25,6 +25,8 @@ MAX_FOLLOWERS = int(os.environ.get("TIKTOKAPI_MAX_FOLLOWERS", "20000"))
 MAX_TOTAL = int(os.environ.get("TIKTOKAPI_MAX_TOTAL", "120"))
 COUNT_PER_KEYWORD = int(os.environ.get("TIKTOKAPI_COUNT_PER_KEYWORD", "20"))
 MS_TOKEN = os.environ.get("TIKTOK_MS_TOKEN") or os.environ.get("ms_token")
+HEADLESS = os.environ.get("TIKTOKAPI_HEADLESS", "true").lower() not in {"false", "0", "no"}
+BROWSER = os.environ.get("TIKTOK_BROWSER", "chromium")
 
 
 def clean(value):
@@ -107,8 +109,8 @@ async def main():
             ms_tokens=[MS_TOKEN],
             num_sessions=1,
             sleep_after=3,
-            browser=os.environ.get("TIKTOK_BROWSER", "chromium"),
-            headless=True,
+            browser=BROWSER,
+            headless=HEADLESS,
             allow_partial_sessions=True,
             min_sessions=1,
         )
