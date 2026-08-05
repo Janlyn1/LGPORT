@@ -1584,6 +1584,17 @@ function duplicateKey(creator) {
   return `${row.username}|${row.tiktokLink}`.toLowerCase();
 }
 
+function isDemoCreator(creator) {
+  const row = normalizeCreator(creator);
+  return (
+    sampleCreators.some((sample) => duplicateKey(sample) === duplicateKey(row)) ||
+    /^BL\d+$/i.test(row.creatorId) ||
+    /^manual-(beauty|glow|makeup|selfcare|lifestyle|affordable|grwm|skincare|haircare|everyday|new|starter)/i.test(row.creatorId) ||
+    /lead\d{2}$/i.test(row.username) ||
+    /@example\.com$/i.test(row.email)
+  );
+}
+
 function logActivity(email, action, detail = "") {
   const logs = memory.logsByEmail.get(email) || [];
   logs.unshift({
@@ -1621,10 +1632,10 @@ async function authorizeEmail(email) {
 
 async function allRawCreators() {
   if (memory.providerCreators.length) return [...memory.providerCreators, ...memory.manualCreators];
-  if (!sheetsEnabled()) return [...sampleCreators, ...memory.manualCreators];
+  if (!sheetsEnabled()) return memory.manualCreators;
   const rows = await values("'All Creators'!A:R");
   const mapped = mapSheetCreators(rows);
-  return mapped.length ? mapped : sampleCreators;
+  return [...mapped.filter((creator) => !isDemoCreator(creator)), ...memory.manualCreators];
 }
 
 async function savedCreators(email) {
@@ -1786,7 +1797,7 @@ app.get("/api/creators", requireUser, requireAdmin, async (request, response) =>
           ? "keyapi-ready"
           : tiktokResearchConfigured()
             ? "tiktok-ready"
-          : "starter-dataset",
+          : "manual-import",
       providerUpdatedAt: memory.providerUpdatedAt,
     });
   } catch (error) {

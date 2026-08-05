@@ -357,7 +357,7 @@ function App() {
   const [token, setToken] = useState(localStorage.getItem("lgport_token") || "");
   const [user, setUser] = useState(canUseApi() && GOOGLE_CLIENT_ID ? null : PUBLIC_USER);
   const [activeTab, setActiveTab] = useState("dashboard");
-  const [allCreators, setAllCreators] = useState(starterCreators);
+  const [allCreators, setAllCreators] = useState([]);
   const [saved, setSaved] = useState([]);
   const [skipped, setSkipped] = useState([]);
   const [admin, setAdmin] = useState(null);
@@ -663,11 +663,19 @@ function App() {
         </section>
 
         {activeTab === "dashboard" || activeTab === "available" ? (
-          <section className="card-grid">
-            {available.map((creator) => (
-              <CreatorCard creator={creator} key={duplicateKey(creator)} onSave={saveCreator} onSkip={skipCreator} />
-            ))}
-          </section>
+          available.length ? (
+            <section className="card-grid">
+              {available.map((creator) => (
+                <CreatorCard creator={creator} key={duplicateKey(creator)} onSave={saveCreator} onSkip={skipCreator} />
+              ))}
+            </section>
+          ) : (
+            <section className="empty-panel">
+              <h2>No real creators loaded yet</h2>
+              <p>Use Settings to import real TikTok creators, or connect a backend data provider. Demo creator cards are hidden.</p>
+              <button onClick={() => setActiveTab("settings")} type="button">Open Settings</button>
+            </section>
+          )
         ) : null}
 
         {activeTab === "saved" ? (

@@ -356,6 +356,25 @@ button, .button-link {
   gap: 8px;
 }
 
+.empty-panel {
+  align-content: center;
+  background: #fff;
+  border: 1px solid var(--line-light);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  margin: 0 auto;
+  max-width: 1600px;
+  min-height: 240px;
+  padding: 28px;
+}
+.empty-panel p {
+  color: var(--muted-light);
+  line-height: 1.5;
+  max-width: 560px;
+}
+
 .table-panel,
 .settings-grid article {
   background: #fff;
