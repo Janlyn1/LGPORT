@@ -77,6 +77,13 @@ function filterCreators(list, filters) {
   });
 }
 
+function canUseApi() {
+  if (typeof window === "undefined") return true;
+  const hostedPage = window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1";
+  const localApi = API_BASE.includes("localhost") || API_BASE.includes("127.0.0.1");
+  return !(hostedPage && localApi);
+}
+
 function Dashboard({ user, token }) {
   const [creators, setCreators] = useState([]);
   const [savedCreators, setSavedCreators] = useState([]);
@@ -111,6 +118,11 @@ function Dashboard({ user, token }) {
       maxFollowers,
       category,
     });
+    if (!canUseApi()) {
+      setCreators(filterCreators(fallbackCreators, { search, minFollowers, maxFollowers, category }));
+      setCategories(["All", ...new Set(fallbackCreators.map((creator) => creator.category))]);
+      return;
+    }
     try {
       const data = await api(`/api/creators?${params.toString()}`);
       setCreators(data.creators || []);
@@ -118,16 +130,17 @@ function Dashboard({ user, token }) {
     } catch (error) {
       setCreators(filterCreators(fallbackCreators, { search, minFollowers, maxFollowers, category }));
       setCategories(["All", ...new Set(fallbackCreators.map((creator) => creator.category))]);
-      setNotice("Showing starter creator leads. Backend sync is not reachable yet.");
     }
   }
 
   async function loadSaved() {
+    if (!canUseApi()) return;
     const data = await api("/api/saved");
     setSavedCreators(data.creators || []);
   }
 
   async function loadAdmin() {
+    if (!canUseApi()) return;
     if (user.role !== "Admin") return;
     const data = await api("/api/admin");
     setAdmin(data);
@@ -138,10 +151,7 @@ function Dashboard({ user, token }) {
     setNotice("");
     try {
       await loadCreators();
-      const secondaryLoads = await Promise.allSettled([loadSaved(), loadAdmin()]);
-      if (secondaryLoads.some((result) => result.status === "rejected") && !notice) {
-        setNotice("Creators loaded. Saved/admin sync needs the backend connection.");
-      }
+      await Promise.allSettled([loadSaved(), loadAdmin()]);
     } catch (error) {
       setNotice(error.message);
     } finally {
@@ -167,6 +177,10 @@ function Dashboard({ user, token }) {
 
   async function saveCreator(creator) {
     setNotice("");
+    if (!canUseApi()) {
+      setNotice("Add the Render backend URL to VITE_API_BASE_URL to save creators.");
+      return;
+    }
     try {
       const data = await api("/api/saved", {
         method: "POST",
@@ -187,6 +201,10 @@ function Dashboard({ user, token }) {
 
   async function updateSaved(creator, updates) {
     setNotice("");
+    if (!canUseApi()) {
+      setNotice("Add the Render backend URL to VITE_API_BASE_URL to update saved creators.");
+      return;
+    }
     try {
       await api("/api/saved", {
         method: "PATCH",
