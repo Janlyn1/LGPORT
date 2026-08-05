@@ -1,91 +1,66 @@
 import cors from "cors";
 import crypto from "node:crypto";
 import express from "express";
-import pg from "pg";
+import { OAuth2Client } from "google-auth-library";
+import { google } from "googleapis";
 
 const app = express();
 const port = process.env.PORT || 4000;
-const statuses = [
-  "For Approval",
+const spreadsheetId =
+  process.env.GOOGLE_SHEET_ID || "1hFkdzit1hxJnbh2DXT4lUn-uCKBpXw2yeAcYF6DOqzQ";
+const jwtSecret = process.env.JWT_SECRET || "local-dev-secret-change-me";
+const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
+const googleClient = googleClientId ? new OAuth2Client(googleClientId) : null;
+
+const savedStatuses = [
+  "Saved",
+  "Already Messaged",
   "Approved",
+  "Not Approved",
   "Rejected",
-  "Ready to Contact",
-  "Contacted",
-  "Replied",
-  "Negotiating",
-  "Closed",
-  "Do Not Contact",
 ];
 
-const seedCreators = [
+const sampleAuthorizedUsers = [
+  { gmail: "admin@example.com", name: "Admin User", role: "Admin", status: "Active" },
+  { gmail: "maria@example.com", name: "Maria", role: "User", status: "Active" },
+];
+
+const sampleCreators = [
   {
-    username: "janeskins",
-    displayName: "Jane Skins",
-    profileLink: "https://www.tiktok.com/@janeskins",
-    followerCount: 84500,
-    followingCount: 418,
-    totalLikes: 1400000,
+    creatorId: "001",
+    name: "Jane Doe",
+    followers: "1.2M",
+    followerCount: 1200000,
+    tiktokLink: "https://www.tiktok.com/@janeskins",
+    category: "Beauty & Skincare",
     country: "United States",
-    email: "jane@skinstudio.com",
-    niche: "Beauty / Skincare",
-    bio: "Acne-safe routines, product reviews, and affordable skin care.",
-    status: "For Approval",
-    assignedTo: "Maria",
-    savedByName: "Maria",
-    savedByEmail: "maria@example.com",
-    responseStatus: "Not contacted",
-    notes: "Strong recent engagement on acne-focused review videos.",
+    lastUpdated: "2026-08-06",
   },
   {
-    username: "annaglowlab",
-    displayName: "Anna Glow Lab",
-    profileLink: "https://www.tiktok.com/@annaglowlab",
-    followerCount: 120000,
-    followingCount: 192,
-    totalLikes: 2100000,
+    creatorId: "002",
+    name: "Anna Smith",
+    followers: "850K",
+    followerCount: 850000,
+    tiktokLink: "https://www.tiktok.com/@annaglowlab",
+    category: "Beauty & Skincare",
     country: "United States",
-    email: "",
-    niche: "Beauty / Skincare",
-    bio: "Makeup reviews and skincare routines for sensitive skin.",
-    status: "Approved",
-    assignedTo: "John",
-    savedByName: "John",
-    savedByEmail: "john@example.com",
-    responseStatus: "Email needed",
-    notes: "Check public links for business contact before outreach.",
+    lastUpdated: "2026-08-06",
   },
   {
-    username: "dermwithmia",
-    displayName: "Derm With Mia",
-    profileLink: "https://www.tiktok.com/@dermwithmia",
-    followerCount: 56200,
-    followingCount: 88,
-    totalLikes: 980000,
+    creatorId: "003",
+    name: "Sarah Lee",
+    followers: "620K",
+    followerCount: 620000,
+    tiktokLink: "https://www.tiktok.com/@dermwithmia",
+    category: "Dermatology",
     country: "United States",
-    email: "hello@dermwithmia.com",
-    niche: "Dermatology / Education",
-    bio: "Licensed skin health educator sharing practical routines.",
-    status: "Ready to Contact",
-    assignedTo: "Lea",
-    savedByName: "Maria",
-    savedByEmail: "maria@example.com",
-    responseStatus: "Ready",
-    notes: "Good match for clinical credibility campaigns.",
+    lastUpdated: "2026-08-06",
   },
 ];
 
 const memory = {
-  creators: [],
-  activity: [],
-  ready: false,
+  savedByEmail: new Map(),
 };
-
-const pool = process.env.DATABASE_URL
-  ? new pg.Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
-    })
-  : null;
 
 app.use(express.json({ limit: "1mb" }));
 app.use(
@@ -105,410 +80,461 @@ function clean(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function numberValue(value) {
-  if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, Math.round(value));
-  const parsed = Number.parseInt(String(value ?? "").replace(/[^0-9]/g, ""), 10);
-  return Number.isFinite(parsed) ? parsed : 0;
+function parseFollowers(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const text = String(value || "").trim().toUpperCase().replace(/,/g, "");
+  const number = Number.parseFloat(text.replace(/[^0-9.]/g, ""));
+  if (!Number.isFinite(number)) return 0;
+  if (text.includes("M")) return Math.round(number * 1000000);
+  if (text.includes("K")) return Math.round(number * 1000);
+  return Math.round(number);
 }
 
-function normalizeProfileLink(value) {
-  const link = clean(value);
-  if (!link) return "";
-  return link.startsWith("http://") || link.startsWith("https://") ? link : `https://${link}`;
+function slugFromEmail(email) {
+  const [local, domain = "gmail"] = email.toLowerCase().split("@");
+  const safeLocal = local.replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  const safeDomain = domain.split(".")[0].replace(/[^a-z0-9_]+/g, "_");
+  return safeLocal || safeDomain || "user";
 }
 
-function normalizeUsername(input) {
-  const manual = clean(input.username).replace(/^@/, "");
-  if (manual) return manual.toLowerCase();
-  const match = normalizeProfileLink(input.profileLink).match(/tiktok\.com\/@([^/?#]+)/i);
-  return match?.[1]?.toLowerCase() ?? "";
+function savedSheetName(email) {
+  return `Saved - ${slugFromEmail(email)}`.slice(0, 90);
 }
 
-function normalizeStatus(status) {
-  return statuses.includes(status) ? status : "For Approval";
-}
-
-function actorFromBody(body) {
-  return {
-    name: clean(body.savedByName) || "Research Team",
-    email: clean(body.savedByEmail),
+function signSession(user) {
+  const payload = {
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    exp: Date.now() + 1000 * 60 * 60 * 12,
   };
+  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = crypto.createHmac("sha256", jwtSecret).update(body).digest("base64url");
+  return `${body}.${signature}`;
 }
 
-function createRecord(input, actor) {
-  const username = normalizeUsername(input);
-  const profileLink = normalizeProfileLink(input.profileLink);
-  if (!username) throw new Error("Username or TikTok profile link is required.");
-  if (!profileLink) throw new Error("TikTok profile link is required.");
-
-  const timestamp = new Date().toISOString();
-  return {
-    id: crypto.randomUUID(),
-    username,
-    displayName: clean(input.displayName) || username,
-    profileLink,
-    followerCount: numberValue(input.followerCount),
-    followingCount: numberValue(input.followingCount),
-    totalLikes: numberValue(input.totalLikes),
-    country: clean(input.country),
-    email: clean(input.email),
-    niche: clean(input.niche),
-    bio: clean(input.bio),
-    profileImage: clean(input.profileImage),
-    status: normalizeStatus(input.status),
-    assignedTo: clean(input.assignedTo),
-    savedByName: actor.name,
-    savedByEmail: actor.email,
-    contactDate: clean(input.contactDate),
-    responseStatus: clean(input.responseStatus) || "Not contacted",
-    notes: clean(input.notes),
-    savedAt: timestamp,
-    updatedAt: timestamp,
-  };
+function readSession(token) {
+  const [body, signature] = String(token || "").split(".");
+  if (!body || !signature) return null;
+  const expected = crypto.createHmac("sha256", jwtSecret).update(body).digest("base64url");
+  if (signature.length !== expected.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+  const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
+  if (!payload.exp || payload.exp < Date.now()) return null;
+  return payload;
 }
 
-function toCamel(row) {
-  return {
-    id: row.id,
-    username: row.username,
-    displayName: row.display_name,
-    profileLink: row.profile_link,
-    followerCount: Number(row.follower_count ?? 0),
-    followingCount: Number(row.following_count ?? 0),
-    totalLikes: Number(row.total_likes ?? 0),
-    country: row.country ?? "",
-    email: row.email ?? "",
-    niche: row.niche ?? "",
-    bio: row.bio ?? "",
-    profileImage: row.profile_image ?? "",
-    status: row.status,
-    assignedTo: row.assigned_to ?? "",
-    savedByName: row.saved_by_name ?? "",
-    savedByEmail: row.saved_by_email ?? "",
-    contactDate: row.contact_date ?? "",
-    responseStatus: row.response_status ?? "",
-    notes: row.notes ?? "",
-    savedAt: row.saved_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-function activityToCamel(row) {
-  return {
-    id: Number(row.id),
-    creatorId: row.creator_id,
-    action: row.action,
-    actorName: row.actor_name ?? "",
-    actorEmail: row.actor_email ?? "",
-    detail: row.detail ?? "",
-    createdAt: row.created_at,
-  };
-}
-
-async function initPostgres() {
-  if (!pool) return;
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS creators (
-      id TEXT PRIMARY KEY,
-      username TEXT NOT NULL UNIQUE,
-      display_name TEXT NOT NULL,
-      profile_link TEXT NOT NULL UNIQUE,
-      follower_count INTEGER NOT NULL DEFAULT 0,
-      following_count INTEGER NOT NULL DEFAULT 0,
-      total_likes INTEGER NOT NULL DEFAULT 0,
-      country TEXT NOT NULL DEFAULT '',
-      email TEXT NOT NULL DEFAULT '',
-      niche TEXT NOT NULL DEFAULT '',
-      bio TEXT NOT NULL DEFAULT '',
-      profile_image TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'For Approval',
-      assigned_to TEXT NOT NULL DEFAULT '',
-      saved_by_name TEXT NOT NULL DEFAULT '',
-      saved_by_email TEXT NOT NULL DEFAULT '',
-      contact_date TEXT NOT NULL DEFAULT '',
-      response_status TEXT NOT NULL DEFAULT '',
-      notes TEXT NOT NULL DEFAULT '',
-      saved_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS creator_activity (
-      id SERIAL PRIMARY KEY,
-      creator_id TEXT NOT NULL,
-      action TEXT NOT NULL,
-      actor_name TEXT NOT NULL DEFAULT '',
-      actor_email TEXT NOT NULL DEFAULT '',
-      detail TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_creators_status ON creators(status);
-    CREATE INDEX IF NOT EXISTS idx_creators_updated_at ON creators(updated_at);
-    CREATE INDEX IF NOT EXISTS idx_creator_activity_creator_id ON creator_activity(creator_id);
-  `);
-
-  const { rows } = await pool.query("SELECT COUNT(*)::int AS count FROM creators");
-  if (rows[0]?.count > 0) return;
-  for (const seed of seedCreators) {
-    await insertCreator(seed, actorFromBody(seed));
-  }
-}
-
-function initMemory() {
-  if (memory.ready) return;
-  for (const seed of seedCreators) {
-    const creator = createRecord(seed, actorFromBody(seed));
-    memory.creators.push(creator);
-    memory.activity.push({
-      id: memory.activity.length + 1,
-      creatorId: creator.id,
-      action: "Creator saved",
-      actorName: creator.savedByName,
-      actorEmail: creator.savedByEmail,
-      detail: `Saved @${creator.username}`,
-      createdAt: creator.savedAt,
-    });
-  }
-  memory.ready = true;
-}
-
-async function listCreators() {
-  if (!pool) {
-    initMemory();
-    return [...memory.creators].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  }
-  await initPostgres();
-  const { rows } = await pool.query("SELECT * FROM creators ORDER BY updated_at DESC, saved_at DESC");
-  return rows.map(toCamel);
-}
-
-async function findDuplicate(input) {
-  const username = normalizeUsername(input);
-  const profileLink = normalizeProfileLink(input.profileLink);
-  if (!pool) {
-    initMemory();
-    return memory.creators.find((creator) => creator.username === username || creator.profileLink === profileLink);
-  }
-  await initPostgres();
-  const { rows } = await pool.query(
-    "SELECT * FROM creators WHERE username = $1 OR profile_link = $2 LIMIT 1",
-    [username, profileLink],
-  );
-  return rows[0] ? toCamel(rows[0]) : null;
-}
-
-async function insertCreator(input, actor) {
-  const duplicate = await findDuplicate(input);
-  if (duplicate) return duplicate;
-
-  const creator = createRecord(input, actor);
-  if (!pool) {
-    memory.creators.push(creator);
-    memory.activity.push({
-      id: memory.activity.length + 1,
-      creatorId: creator.id,
-      action: "Creator saved",
-      actorName: actor.name,
-      actorEmail: actor.email,
-      detail: `Saved @${creator.username}`,
-      createdAt: creator.savedAt,
-    });
-    return creator;
-  }
-
-  await pool.query(
-    `INSERT INTO creators (
-      id, username, display_name, profile_link, follower_count, following_count,
-      total_likes, country, email, niche, bio, profile_image, status, assigned_to,
-      saved_by_name, saved_by_email, contact_date, response_status, notes, saved_at, updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
-    [
-      creator.id,
-      creator.username,
-      creator.displayName,
-      creator.profileLink,
-      creator.followerCount,
-      creator.followingCount,
-      creator.totalLikes,
-      creator.country,
-      creator.email,
-      creator.niche,
-      creator.bio,
-      creator.profileImage,
-      creator.status,
-      creator.assignedTo,
-      creator.savedByName,
-      creator.savedByEmail,
-      creator.contactDate,
-      creator.responseStatus,
-      creator.notes,
-      creator.savedAt,
-      creator.updatedAt,
-    ],
-  );
-  await addActivity(creator.id, "Creator saved", actor, `Saved @${creator.username}`);
-  return creator;
-}
-
-async function getCreator(id) {
-  if (!pool) {
-    initMemory();
-    return memory.creators.find((creator) => creator.id === id) ?? null;
-  }
-  await initPostgres();
-  const { rows } = await pool.query("SELECT * FROM creators WHERE id = $1", [id]);
-  return rows[0] ? toCamel(rows[0]) : null;
-}
-
-async function getActivity(id) {
-  if (!pool) {
-    initMemory();
-    return memory.activity
-      .filter((item) => item.creatorId === id)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }
-  await initPostgres();
-  const { rows } = await pool.query(
-    "SELECT * FROM creator_activity WHERE creator_id = $1 ORDER BY created_at DESC, id DESC",
-    [id],
-  );
-  return rows.map(activityToCamel);
-}
-
-async function addActivity(creatorId, action, actor, detail) {
-  const createdAt = new Date().toISOString();
-  if (!pool) {
-    memory.activity.push({
-      id: memory.activity.length + 1,
-      creatorId,
-      action,
-      actorName: actor.name,
-      actorEmail: actor.email,
-      detail,
-      createdAt,
-    });
+function requireUser(request, response, next) {
+  const token = request.headers.authorization?.replace(/^Bearer\s+/i, "");
+  const user = readSession(token);
+  if (!user) {
+    response.status(401).json({ error: "Login required." });
     return;
   }
-  await pool.query(
-    "INSERT INTO creator_activity (creator_id, action, actor_name, actor_email, detail, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
-    [creatorId, action, actor.name, actor.email, detail, createdAt],
-  );
+  request.user = user;
+  next();
 }
 
-async function updateCreator(id, input, actor) {
-  const current = await getCreator(id);
-  if (!current) return null;
+function requireAdmin(request, response, next) {
+  if (request.user?.role !== "Admin") {
+    response.status(403).json({ error: "Admin access required." });
+    return;
+  }
+  next();
+}
 
-  const next = {
-    ...current,
-    displayName: input.displayName === undefined ? current.displayName : clean(input.displayName),
-    country: input.country === undefined ? current.country : clean(input.country),
-    email: input.email === undefined ? current.email : clean(input.email),
-    niche: input.niche === undefined ? current.niche : clean(input.niche),
-    bio: input.bio === undefined ? current.bio : clean(input.bio),
-    status: input.status === undefined ? current.status : normalizeStatus(input.status),
-    assignedTo: input.assignedTo === undefined ? current.assignedTo : clean(input.assignedTo),
-    notes: input.notes === undefined ? current.notes : clean(input.notes),
-    responseStatus: input.responseStatus === undefined ? current.responseStatus : clean(input.responseStatus),
-    updatedAt: new Date().toISOString(),
+function serviceAccountConfig() {
+  if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    return JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  }
+  if (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
+    return {
+      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+    };
+  }
+  return null;
+}
+
+function sheetsEnabled() {
+  return Boolean(serviceAccountConfig() && spreadsheetId);
+}
+
+async function sheetsClient() {
+  const credentials = serviceAccountConfig();
+  if (!credentials) return null;
+  const auth = new google.auth.JWT({
+    email: credentials.client_email,
+    key: credentials.private_key,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  });
+  return google.sheets({ version: "v4", auth });
+}
+
+async function getSheetMetadata() {
+  const sheets = await sheetsClient();
+  if (!sheets) return null;
+  const response = await sheets.spreadsheets.get({ spreadsheetId });
+  return response.data.sheets || [];
+}
+
+async function values(range) {
+  const sheets = await sheetsClient();
+  if (!sheets) return [];
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range });
+  return response.data.values || [];
+}
+
+async function ensureSheet(title, headers) {
+  const sheets = await sheetsClient();
+  if (!sheets) return;
+  const metadata = await getSheetMetadata();
+  const exists = metadata?.some((sheet) => sheet.properties?.title === title);
+  if (!exists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [{ addSheet: { properties: { title } } }],
+      },
+    });
+  }
+  const headerRows = await values(`'${title}'!A1:${String.fromCharCode(64 + headers.length)}1`);
+  if (!headerRows.length) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${title}'!A1`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [headers] },
+    });
+  }
+}
+
+async function appendRow(title, row) {
+  const sheets = await sheetsClient();
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `'${title}'!A:Z`,
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values: [row] },
+  });
+}
+
+async function updateRow(title, rowNumber, row) {
+  const sheets = await sheetsClient();
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `'${title}'!A${rowNumber}:G${rowNumber}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [row] },
+  });
+}
+
+function mapAllCreators(rows) {
+  return rows.slice(1).filter((row) => row.some(Boolean)).map((row) => ({
+    creatorId: clean(row[0]),
+    name: clean(row[1]),
+    followers: clean(row[2]),
+    followerCount: parseFollowers(row[2]),
+    tiktokLink: clean(row[3]),
+    category: clean(row[4]),
+    country: clean(row[5]),
+    lastUpdated: clean(row[6]),
+  }));
+}
+
+function mapSavedRows(rows, email) {
+  return rows.slice(1).filter((row) => row.some(Boolean)).map((row, index) => ({
+    rowNumber: index + 2,
+    dateSaved: clean(row[0]),
+    name: clean(row[1]),
+    followers: clean(row[2]),
+    followerCount: parseFollowers(row[2]),
+    tiktokLink: clean(row[3]),
+    status: clean(row[4]) || "Saved",
+    notes: clean(row[5]),
+    savedBy: clean(row[6]) || email,
+  }));
+}
+
+async function authorizedUsers() {
+  if (!sheetsEnabled()) return sampleAuthorizedUsers;
+  const rows = await values("'Authorized Users'!A:D");
+  return rows.slice(1).filter((row) => row.some(Boolean)).map((row) => ({
+    gmail: clean(row[0]).toLowerCase(),
+    name: clean(row[1]),
+    role: clean(row[2]) || "User",
+    status: clean(row[3]) || "Disabled",
+  }));
+}
+
+async function authorizeEmail(email) {
+  const users = await authorizedUsers();
+  const user = users.find((item) => item.gmail === email.toLowerCase());
+  if (!user || user.status !== "Active") return null;
+  return {
+    email: user.gmail,
+    name: user.name || user.gmail,
+    role: user.role === "Admin" ? "Admin" : "User",
   };
+}
 
-  const detail =
-    current.status !== next.status
-      ? `Status changed from ${current.status} to ${next.status}`
-      : "Creator details updated";
+async function allCreators(query = {}) {
+  const rows = sheetsEnabled()
+    ? mapAllCreators(await values("'All Creators'!A:G"))
+    : sampleCreators;
+  const search = clean(query.search).toLowerCase();
+  const minFollowers = parseFollowers(query.minFollowers);
+  const category = clean(query.category);
+  return rows.filter((creator) => {
+    const matchesSearch =
+      !search ||
+      [creator.name, creator.category, creator.country, creator.tiktokLink]
+        .join(" ")
+        .toLowerCase()
+        .includes(search);
+    const matchesFollowers = !minFollowers || creator.followerCount >= minFollowers;
+    const matchesCategory = !category || category === "All" || creator.category === category;
+    return matchesSearch && matchesFollowers && matchesCategory;
+  });
+}
 
-  if (!pool) {
-    memory.creators = memory.creators.map((creator) => (creator.id === id ? next : creator));
-    await addActivity(id, current.status !== next.status ? "Status changed" : "Creator updated", actor, detail);
-    return next;
+async function savedCreators(email) {
+  const title = savedSheetName(email);
+  if (!sheetsEnabled()) {
+    return memory.savedByEmail.get(email) || [];
+  }
+  await ensureSheet(title, [
+    "Date Saved",
+    "Creator Name",
+    "Followers",
+    "TikTok Link",
+    "Status",
+    "Notes",
+    "Saved By",
+  ]);
+  return mapSavedRows(await values(`'${title}'!A:G`), email);
+}
+
+async function teamDuplicateWarning(tiktokLink, email) {
+  if (!sheetsEnabled()) return false;
+  const metadata = await getSheetMetadata();
+  const savedTabs =
+    metadata
+      ?.map((sheet) => sheet.properties?.title)
+      .filter((title) => title?.startsWith("Saved -") && title !== savedSheetName(email)) || [];
+  for (const tab of savedTabs) {
+    const rows = await values(`'${tab}'!A:G`);
+    if (mapSavedRows(rows, "").some((creator) => creator.tiktokLink === tiktokLink)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function saveCreatorForUser(email, creator) {
+  const existing = await savedCreators(email);
+  const tiktokLink = clean(creator.tiktokLink);
+  if (existing.some((item) => item.tiktokLink === tiktokLink)) {
+    return { duplicate: true, message: "You already saved this creator." };
   }
 
-  await pool.query(
-    `UPDATE creators SET
-      display_name = $1, country = $2, email = $3, niche = $4, bio = $5,
-      status = $6, assigned_to = $7, notes = $8, response_status = $9, updated_at = $10
-    WHERE id = $11`,
-    [
-      next.displayName,
-      next.country,
-      next.email,
-      next.niche,
-      next.bio,
+  const row = {
+    dateSaved: new Date().toISOString().slice(0, 10),
+    name: clean(creator.name),
+    followers: clean(creator.followers),
+    followerCount: parseFollowers(creator.followers),
+    tiktokLink,
+    status: clean(creator.status) || "Saved",
+    notes: clean(creator.notes),
+    savedBy: email,
+  };
+
+  if (sheetsEnabled()) {
+    const title = savedSheetName(email);
+    await ensureSheet(title, [
+      "Date Saved",
+      "Creator Name",
+      "Followers",
+      "TikTok Link",
+      "Status",
+      "Notes",
+      "Saved By",
+    ]);
+    await appendRow(title, [
+      row.dateSaved,
+      row.name,
+      row.followers,
+      row.tiktokLink,
+      row.status,
+      row.notes,
+      row.savedBy,
+    ]);
+  } else {
+    const rows = memory.savedByEmail.get(email) || [];
+    rows.push({ ...row, rowNumber: rows.length + 2 });
+    memory.savedByEmail.set(email, rows);
+  }
+
+  return {
+    creator: row,
+    teamDuplicateWarning: await teamDuplicateWarning(tiktokLink, email),
+  };
+}
+
+async function updateSavedForUser(email, payload) {
+  const rows = await savedCreators(email);
+  const target = rows.find((row) => row.tiktokLink === clean(payload.tiktokLink));
+  if (!target) return null;
+
+  const next = {
+    ...target,
+    status: savedStatuses.includes(payload.status) ? payload.status : target.status,
+    notes: payload.notes === undefined ? target.notes : clean(payload.notes),
+  };
+
+  if (sheetsEnabled()) {
+    await updateRow(savedSheetName(email), target.rowNumber, [
+      next.dateSaved,
+      next.name,
+      next.followers,
+      next.tiktokLink,
       next.status,
-      next.assignedTo,
       next.notes,
-      next.responseStatus,
-      next.updatedAt,
-      id,
-    ],
-  );
-  await addActivity(id, current.status !== next.status ? "Status changed" : "Creator updated", actor, detail);
+      next.savedBy,
+    ]);
+  } else {
+    memory.savedByEmail.set(
+      email,
+      rows.map((row) => (row.tiktokLink === next.tiktokLink ? next : row)),
+    );
+  }
+
   return next;
 }
 
 app.get("/api/health", (_request, response) => {
-  response.json({ ok: true, storage: pool ? "postgres" : "memory" });
-});
-
-app.get("/api/creators", async (_request, response) => {
-  try {
-    response.json({ creators: await listCreators(), statuses });
-  } catch (error) {
-    response.status(500).json({ error: error.message });
-  }
-});
-
-app.post("/api/creators", async (request, response) => {
-  try {
-    const duplicate = await findDuplicate(request.body);
-    if (duplicate) {
-      response.status(409).json({ error: "Creator already exists.", duplicate });
-      return;
-    }
-    const creator = await insertCreator(request.body, actorFromBody(request.body));
-    response.status(201).json({ creator });
-  } catch (error) {
-    response.status(error.message.includes("required") ? 400 : 500).json({ error: error.message });
-  }
-});
-
-app.get("/api/creators/:id", async (request, response) => {
-  try {
-    const creator = await getCreator(request.params.id);
-    if (!creator) {
-      response.status(404).json({ error: "Creator not found." });
-      return;
-    }
-    response.json({ creator, activity: await getActivity(request.params.id) });
-  } catch (error) {
-    response.status(500).json({ error: error.message });
-  }
-});
-
-app.patch("/api/creators/:id", async (request, response) => {
-  try {
-    const creator = await updateCreator(request.params.id, request.body, actorFromBody(request.body));
-    if (!creator) {
-      response.status(404).json({ error: "Creator not found." });
-      return;
-    }
-    response.json({ creator, activity: await getActivity(request.params.id) });
-  } catch (error) {
-    response.status(500).json({ error: error.message });
-  }
-});
-
-app.post("/api/sheets/sync", async (_request, response) => {
-  const creators = await listCreators();
   response.json({
     ok: true,
-    mode: "ready",
-    rowsPrepared: creators.length,
-    message:
-      "Add Google service credentials and a spreadsheet ID to push rows with the Google Sheets API.",
+    storage: sheetsEnabled() ? "google-sheets" : "demo-memory",
+    spreadsheetId,
+    googleLoginConfigured: Boolean(googleClientId),
   });
 });
 
-await initPostgres();
+app.post("/api/auth/google", async (request, response) => {
+  try {
+    if (!googleClient) {
+      response.status(500).json({ error: "GOOGLE_CLIENT_ID is not configured." });
+      return;
+    }
+    const ticket = await googleClient.verifyIdToken({
+      idToken: request.body.credential,
+      audience: googleClientId,
+    });
+    const payload = ticket.getPayload();
+    const email = payload?.email?.toLowerCase();
+    if (!email) {
+      response.status(401).json({ error: "Google account email is unavailable." });
+      return;
+    }
+    const user = await authorizeEmail(email);
+    if (!user) {
+      response.status(403).json({ error: "Access Denied. Your account is not authorized." });
+      return;
+    }
+    response.json({ token: signSession(user), user });
+  } catch (error) {
+    response.status(401).json({ error: error.message });
+  }
+});
+
+app.post("/api/auth/demo", async (_request, response) => {
+  if (process.env.NODE_ENV === "production") {
+    response.status(404).json({ error: "Demo login is disabled in production." });
+    return;
+  }
+  const user = { email: "admin@example.com", name: "Admin User", role: "Admin" };
+  response.json({ token: signSession(user), user });
+});
+
+app.get("/api/me", requireUser, (request, response) => {
+  response.json({ user: request.user, statuses: savedStatuses });
+});
+
+app.get("/api/creators", requireUser, async (request, response) => {
+  try {
+    const creators = await allCreators(request.query);
+    const categories = [...new Set((await allCreators()).map((creator) => creator.category).filter(Boolean))];
+    response.json({ creators, categories, statuses: savedStatuses });
+  } catch (error) {
+    response.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/saved", requireUser, async (request, response) => {
+  try {
+    response.json({ creators: await savedCreators(request.user.email), statuses: savedStatuses });
+  } catch (error) {
+    response.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/saved", requireUser, async (request, response) => {
+  try {
+    const result = await saveCreatorForUser(request.user.email, request.body);
+    response.status(result.duplicate ? 409 : 201).json(result);
+  } catch (error) {
+    response.status(500).json({ error: error.message });
+  }
+});
+
+app.patch("/api/saved", requireUser, async (request, response) => {
+  try {
+    const creator = await updateSavedForUser(request.user.email, request.body);
+    if (!creator) {
+      response.status(404).json({ error: "Saved creator not found." });
+      return;
+    }
+    response.json({ creator });
+  } catch (error) {
+    response.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/admin", requireUser, requireAdmin, async (_request, response) => {
+  try {
+    const users = await authorizedUsers();
+    const creators = await allCreators();
+    const savedCounts = [];
+    for (const user of users.filter((item) => item.status === "Active")) {
+      savedCounts.push({
+        gmail: user.gmail,
+        name: user.name,
+        count: (await savedCreators(user.gmail)).length,
+      });
+    }
+    response.json({
+      users,
+      totalCreators: creators.length,
+      savedCounts,
+      activeUsers: users.filter((user) => user.status === "Active").length,
+      disabledUsers: users.filter((user) => user.status !== "Active").length,
+    });
+  } catch (error) {
+    response.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/sheets/sync", requireUser, async (_request, response) => {
+  response.json({
+    ok: true,
+    spreadsheetId,
+    personalTab: savedSheetName(_request.user.email),
+    mode: sheetsEnabled() ? "google-sheets" : "demo-memory",
+  });
+});
+
 app.listen(port, () => {
   console.log(`LGPORT creator backend running on port ${port}`);
 });

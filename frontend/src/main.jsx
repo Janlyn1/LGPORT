@@ -3,34 +3,8 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
-const statuses = [
-  "For Approval",
-  "Approved",
-  "Rejected",
-  "Ready to Contact",
-  "Contacted",
-  "Replied",
-  "Negotiating",
-  "Closed",
-  "Do Not Contact",
-];
-
-const defaultForm = {
-  profileLink: "",
-  username: "",
-  displayName: "",
-  followerCount: "",
-  followingCount: "",
-  totalLikes: "",
-  niche: "Beauty / Skincare",
-  country: "United States",
-  email: "",
-  bio: "",
-  notes: "",
-  assignedTo: "",
-  savedByName: "Research Team",
-  savedByEmail: "",
-};
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
+const savedStatuses = ["Saved", "Already Messaged", "Approved", "Not Approved", "Rejected"];
 
 function compactNumber(value) {
   return Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value || 0);
@@ -49,154 +23,202 @@ function initials(name = "") {
     .toUpperCase();
 }
 
-function dateLabel(value) {
-  if (!value) return "";
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
-
 function statusClass(status) {
   return `status status-${status.toLowerCase().replaceAll(" ", "-")}`;
 }
 
-function App() {
+function dateLabel(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(
+    new Date(value),
+  );
+}
+
+function LoginScreen({ onLogin }) {
+  const [notice, setNotice] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function loginWithCredential(credential) {
+    setLoading(true);
+    setNotice("");
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/google`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credential }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Unable to login.");
+      localStorage.setItem("lgport_token", data.token);
+      onLogin(data.user, data.token);
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function demoLogin() {
+    setLoading(true);
+    setNotice("");
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/demo`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Demo login unavailable.");
+      localStorage.setItem("lgport_token", data.token);
+      onLogin(data.user, data.token);
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) return;
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: (response) => loginWithCredential(response.credential),
+      });
+      window.google.accounts.id.renderButton(document.getElementById("google-login"), {
+        theme: "outline",
+        size: "large",
+        width: 260,
+      });
+    };
+    document.body.appendChild(script);
+    return () => script.remove();
+  }, []);
+
+  return (
+    <main className="login-shell">
+      <section className="login-panel">
+        <p className="eyebrow">Private TikTok Creator Research</p>
+        <h1>Login with your authorized Google account</h1>
+        <p className="login-copy">
+          Access is checked against the `Authorized Users` tab in the project Google Sheet.
+        </p>
+        <div id="google-login" className="google-slot" />
+        {!GOOGLE_CLIENT_ID ? (
+          <button disabled={loading} onClick={demoLogin} type="button">
+            {loading ? "Logging in" : "Use Local Demo Login"}
+          </button>
+        ) : null}
+        {notice ? <div className="notice">{notice}</div> : null}
+      </section>
+    </main>
+  );
+}
+
+function Dashboard({ user, token, onLogout }) {
   const [creators, setCreators] = useState([]);
-  const [selectedId, setSelectedId] = useState("");
-  const [activity, setActivity] = useState([]);
-  const [statusFilter, setStatusFilter] = useState("All");
-  const [query, setQuery] = useState("");
+  const [savedCreators, setSavedCreators] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [admin, setAdmin] = useState(null);
+  const [search, setSearch] = useState("skincare");
+  const [minFollowers, setMinFollowers] = useState("100000");
+  const [category, setCategory] = useState("All");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState(defaultForm);
 
-  async function api(path, options) {
+  async function api(path, options = {}) {
     const response = await fetch(`${API_BASE}${path}`, {
-      headers: { "Content-Type": "application/json" },
       ...options,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(options.headers || {}),
+      },
     });
     const data = await response.json();
-    if (!response.ok) {
-      const error = new Error(data.error || "Request failed");
-      error.data = data;
-      throw error;
-    }
+    if (!response.ok) throw new Error(data.error || "Request failed.");
     return data;
   }
 
-  async function loadCreators(selectId = selectedId) {
-    const data = await api("/api/creators");
+  async function loadCreators() {
+    const params = new URLSearchParams({
+      search,
+      minFollowers,
+      category,
+    });
+    const data = await api(`/api/creators?${params.toString()}`);
     setCreators(data.creators || []);
-    setSelectedId(selectId || data.creators?.[0]?.id || "");
-    setLoading(false);
+    setCategories(["All", ...(data.categories || [])]);
   }
 
-  async function loadSelected(id) {
-    if (!id) return;
-    const data = await api(`/api/creators/${id}`);
-    setActivity(data.activity || []);
-    if (data.creator) {
-      setCreators((rows) => rows.map((row) => (row.id === data.creator.id ? data.creator : row)));
-    }
+  async function loadSaved() {
+    const data = await api("/api/saved");
+    setSavedCreators(data.creators || []);
   }
 
-  useEffect(() => {
-    loadCreators().catch((error) => {
-      setNotice(error.message);
-      setLoading(false);
-    });
-  }, []);
-
-  useEffect(() => {
-    loadSelected(selectedId).catch((error) => setNotice(error.message));
-  }, [selectedId]);
-
-  const selected = creators.find((creator) => creator.id === selectedId) || creators[0];
-  const filteredCreators = useMemo(() => {
-    const term = query.trim().toLowerCase();
-    return creators.filter((creator) => {
-      const statusMatch = statusFilter === "All" || creator.status === statusFilter;
-      const text = [
-        creator.displayName,
-        creator.username,
-        creator.country,
-        creator.email,
-        creator.niche,
-        creator.assignedTo,
-      ]
-        .join(" ")
-        .toLowerCase();
-      return statusMatch && (!term || text.includes(term));
-    });
-  }, [creators, query, statusFilter]);
-
-  const metrics = useMemo(() => {
-    const totalFollowers = creators.reduce((sum, creator) => sum + creator.followerCount, 0);
-    return [
-      ["Creators", fullNumber(creators.length)],
-      ["Audience", compactNumber(totalFollowers)],
-      ["Approved pool", fullNumber(creators.filter((c) => ["Approved", "Ready to Contact", "Replied", "Negotiating"].includes(c.status)).length)],
-      ["Need email", fullNumber(creators.filter((c) => !c.email).length)],
-      ["Contacted", fullNumber(creators.filter((c) => ["Contacted", "Replied", "Negotiating", "Closed"].includes(c.status)).length)],
-    ];
-  }, [creators]);
-
-  function setField(field, value) {
-    setForm((current) => ({ ...current, [field]: value }));
+  async function loadAdmin() {
+    if (user.role !== "Admin") return;
+    const data = await api("/api/admin");
+    setAdmin(data);
   }
 
-  async function saveCreator(event) {
-    event.preventDefault();
-    setSaving(true);
+  async function refreshAll() {
+    setLoading(true);
     setNotice("");
     try {
-      const payload = {
-        ...form,
-        followerCount: Number(String(form.followerCount).replace(/[^0-9]/g, "")) || 0,
-        followingCount: Number(String(form.followingCount).replace(/[^0-9]/g, "")) || 0,
-        totalLikes: Number(String(form.totalLikes).replace(/[^0-9]/g, "")) || 0,
-      };
-      const data = await api("/api/creators", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-      setForm(defaultForm);
-      setNotice(`Saved @${data.creator.username}`);
-      await loadCreators(data.creator.id);
+      await Promise.all([loadCreators(), loadSaved(), loadAdmin()]);
     } catch (error) {
-      if (error.data?.duplicate) {
-        setSelectedId(error.data.duplicate.id);
-        setNotice(`Duplicate found: @${error.data.duplicate.username}`);
-      } else {
-        setNotice(error.message);
-      }
+      setNotice(error.message);
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
   }
 
-  async function updateSelected(payload) {
-    if (!selected) return;
+  useEffect(() => {
+    refreshAll();
+  }, []);
+
+  const metrics = useMemo(() => {
+    const approved = savedCreators.filter((creator) => creator.status === "Approved").length;
+    const rejected = savedCreators.filter((creator) => creator.status === "Rejected").length;
+    return [
+      ["Results", fullNumber(creators.length)],
+      ["My Saved", fullNumber(savedCreators.length)],
+      ["Approved", fullNumber(approved)],
+      ["Rejected", fullNumber(rejected)],
+      ["Best Audience", compactNumber(Math.max(0, ...creators.map((creator) => creator.followerCount)))],
+    ];
+  }, [creators, savedCreators]);
+
+  async function saveCreator(creator) {
+    setNotice("");
     try {
-      const data = await api(`/api/creators/${selected.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ ...payload, savedByName: "Research Team" }),
+      const data = await api("/api/saved", {
+        method: "POST",
+        body: JSON.stringify({
+          name: creator.name,
+          followers: creator.followers,
+          tiktokLink: creator.tiktokLink,
+          status: "Saved",
+          notes: "",
+        }),
       });
-      setCreators((rows) => rows.map((row) => (row.id === data.creator.id ? data.creator : row)));
-      setActivity(data.activity || []);
+      setNotice(data.teamDuplicateWarning ? "Creator saved. Team warning: another member saved this creator too." : "Creator Saved");
+      await loadSaved();
     } catch (error) {
       setNotice(error.message);
     }
   }
 
-  async function syncSheets() {
+  async function updateSaved(creator, updates) {
+    setNotice("");
     try {
-      const data = await api("/api/sheets/sync", { method: "POST" });
-      setNotice(`Sheets sync ready: ${data.rowsPrepared} rows prepared`);
+      await api("/api/saved", {
+        method: "PATCH",
+        body: JSON.stringify({ tiktokLink: creator.tiktokLink, ...updates }),
+      });
+      await loadSaved();
+      setNotice("Saved creator updated");
     } catch (error) {
       setNotice(error.message);
     }
@@ -206,15 +228,16 @@ function App() {
     <main className="app-shell">
       <section className="topbar">
         <div>
-          <p className="eyebrow">TikTok Creator Management System</p>
-          <h1>Creator Research Dashboard</h1>
+          <p className="eyebrow">TikTok Creator Internal Website</p>
+          <h1>TikTok Creator Dashboard</h1>
         </div>
         <div className="account-pill">
-          <span>RT</span>
+          <span>{initials(user.name)}</span>
           <div>
-            <strong>Research Team</strong>
-            <small>Vercel + Render build</small>
+            <strong>{user.name}</strong>
+            <small>{user.email}</small>
           </div>
+          <button className="text-button" onClick={onLogout} type="button">Logout</button>
         </div>
       </section>
 
@@ -227,119 +250,136 @@ function App() {
         ))}
       </section>
 
-      {notice && <div className="notice">{notice}</div>}
+      {notice ? <div className="notice">{notice}</div> : null}
 
-      <section className="workspace-grid">
+      <section className="search-band">
+        <label>
+          Search
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="skincare" />
+        </label>
+        <label>
+          Minimum Followers
+          <input value={minFollowers} onChange={(event) => setMinFollowers(event.target.value)} placeholder="100000" />
+        </label>
+        <label>
+          Category
+          <select value={category} onChange={(event) => setCategory(event.target.value)}>
+            {categories.map((item) => <option key={item}>{item}</option>)}
+          </select>
+        </label>
+        <button onClick={refreshAll} type="button">{loading ? "Searching" : "Search Creators"}</button>
+      </section>
+
+      <section className="workspace-grid two-col">
         <div className="list-panel">
           <div className="panel-header">
             <div>
-              <h2>Creator List</h2>
-              <p>{loading ? "Loading records" : `${filteredCreators.length} visible records`}</p>
+              <h2>All Creators</h2>
+              <p>Source: Google Sheet tab `All Creators`</p>
             </div>
-            <button className="icon-button" onClick={syncSheets} type="button">Sync</button>
           </div>
-
-          <div className="controls-row">
-            <input placeholder="Search name, niche, country" value={query} onChange={(event) => setQuery(event.target.value)} />
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-              <option value="All">All statuses</option>
-              {statuses.map((status) => <option key={status}>{status}</option>)}
-            </select>
-          </div>
-
-          <div className="status-tabs">
-            {["All", ...statuses].map((status) => (
-              <button className={statusFilter === status ? "active" : ""} key={status} onClick={() => setStatusFilter(status)} type="button">
-                {status}
-              </button>
-            ))}
-          </div>
-
           <div className="creator-table">
-            {filteredCreators.map((creator) => (
-              <button className={creator.id === selected?.id ? "creator-row selected" : "creator-row"} key={creator.id} onClick={() => setSelectedId(creator.id)} type="button">
-                <span className="avatar">{initials(creator.displayName)}</span>
+            {creators.map((creator) => (
+              <div className="creator-row" key={creator.creatorId || creator.tiktokLink}>
+                <span className="avatar">{initials(creator.name)}</span>
                 <span className="creator-main">
-                  <strong>{creator.displayName}</strong>
-                  <small>@{creator.username}</small>
+                  <strong>{creator.name}</strong>
+                  <small>{creator.category} · {creator.country}</small>
                 </span>
                 <span className="creator-meta">
-                  <strong>{compactNumber(creator.followerCount)}</strong>
-                  <small>{creator.country || "Unverified"}</small>
+                  <strong>{creator.followers || compactNumber(creator.followerCount)}</strong>
+                  <small>{dateLabel(creator.lastUpdated) || "Updated from sheet"}</small>
                 </span>
-                <span className={statusClass(creator.status)}>{creator.status}</span>
-              </button>
+                <span className="row-actions">
+                  <a href={creator.tiktokLink} target="_blank" rel="noreferrer">Open TikTok</a>
+                  <button onClick={() => saveCreator(creator)} type="button">Save</button>
+                </span>
+              </div>
             ))}
           </div>
         </div>
 
         <aside className="detail-panel">
-          {selected ? (
-            <>
-              <div className="profile-heading">
-                <span className="avatar large">{initials(selected.displayName)}</span>
+          <div className="panel-title">
+            <h2>My Saved Creators</h2>
+            <p>Personal tab: Saved - {user.email.split("@")[0]}</p>
+          </div>
+          <div className="saved-list">
+            {savedCreators.map((creator) => (
+              <article className="saved-card" key={creator.tiktokLink}>
                 <div>
-                  <h2>{selected.displayName}</h2>
-                  <a href={selected.profileLink} target="_blank" rel="noreferrer">@{selected.username}</a>
+                  <strong>{creator.name}</strong>
+                  <a href={creator.tiktokLink} target="_blank" rel="noreferrer">View profile</a>
                 </div>
-              </div>
-              <div className="profile-stats">
-                <span><strong>{fullNumber(selected.followerCount)}</strong>Followers</span>
-                <span><strong>{fullNumber(selected.followingCount)}</strong>Following</span>
-                <span><strong>{compactNumber(selected.totalLikes)}</strong>Likes</span>
-              </div>
-              <div className="field-grid">
-                <label>Status<select value={selected.status} onChange={(event) => updateSelected({ status: event.target.value })}>{statuses.map((status) => <option key={status}>{status}</option>)}</select></label>
-                <label>Assigned To<input value={selected.assignedTo || ""} onChange={(event) => updateSelected({ assignedTo: event.target.value })} /></label>
-                <label>Email<input value={selected.email || ""} onChange={(event) => updateSelected({ email: event.target.value })} /></label>
-                <label>Country<input value={selected.country || ""} onChange={(event) => updateSelected({ country: event.target.value })} /></label>
-              </div>
-              <label className="wide-label">Notes<textarea value={selected.notes || ""} onChange={(event) => updateSelected({ notes: event.target.value })} /></label>
-              <div className="profile-copy">
-                <p>{selected.bio || "No bio captured"}</p>
-                <span className={statusClass(selected.status)}>{selected.status}</span>
-              </div>
-              <div className="history">
-                <h3>Activity History</h3>
-                {activity.map((item) => (
-                  <div className="history-item" key={item.id}>
-                    <span />
-                    <div>
-                      <strong>{item.action}</strong>
-                      <p>{item.detail}</p>
-                      <small>{dateLabel(item.createdAt)} by {item.actorName || "System"}</small>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : <div className="empty-state">No creator selected</div>}
+                <span>{creator.followers}</span>
+                <select value={creator.status} onChange={(event) => updateSaved(creator, { status: event.target.value })}>
+                  {savedStatuses.map((status) => <option key={status}>{status}</option>)}
+                </select>
+                <textarea
+                  value={creator.notes || ""}
+                  onChange={(event) => updateSaved(creator, { notes: event.target.value })}
+                  placeholder="Notes"
+                />
+              </article>
+            ))}
+          </div>
         </aside>
-
-        <form className="capture-panel" onSubmit={saveCreator}>
-          <div className="panel-header">
-            <div>
-              <h2>Save Creator</h2>
-              <p>Chrome extension capture form</p>
-            </div>
-            <button disabled={saving} type="submit">{saving ? "Saving" : "Save"}</button>
-          </div>
-          <label>TikTok Profile Link<input required value={form.profileLink} onChange={(event) => setField("profileLink", event.target.value)} placeholder="https://www.tiktok.com/@creator" /></label>
-          <div className="form-grid">
-            <label>Username<input value={form.username} onChange={(event) => setField("username", event.target.value)} placeholder="@creator" /></label>
-            <label>Display Name<input required value={form.displayName} onChange={(event) => setField("displayName", event.target.value)} /></label>
-            <label>Followers<input inputMode="numeric" value={form.followerCount} onChange={(event) => setField("followerCount", event.target.value)} /></label>
-            <label>Total Likes<input inputMode="numeric" value={form.totalLikes} onChange={(event) => setField("totalLikes", event.target.value)} /></label>
-            <label>Niche<input value={form.niche} onChange={(event) => setField("niche", event.target.value)} /></label>
-            <label>Country<input value={form.country} onChange={(event) => setField("country", event.target.value)} /></label>
-          </div>
-          <label>Business Email<input type="email" value={form.email} onChange={(event) => setField("email", event.target.value)} /></label>
-          <label>Bio<textarea value={form.bio} onChange={(event) => setField("bio", event.target.value)} /></label>
-          <label>Notes<textarea value={form.notes} onChange={(event) => setField("notes", event.target.value)} /></label>
-        </form>
       </section>
+
+      {user.role === "Admin" ? (
+        <section className="admin-panel">
+          <div>
+            <h2>Admin Dashboard</h2>
+            <p>Authorized users and team save summary</p>
+          </div>
+          {admin ? (
+            <div className="admin-grid">
+              <span>Active users <strong>{admin.activeUsers}</strong></span>
+              <span>Disabled users <strong>{admin.disabledUsers}</strong></span>
+              <span>Total creators <strong>{admin.totalCreators}</strong></span>
+              <span>Tracked users <strong>{admin.savedCounts?.length || 0}</strong></span>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
     </main>
   );
+}
+
+function App() {
+  const [token, setToken] = useState(localStorage.getItem("lgport_token") || "");
+  const [user, setUser] = useState(null);
+  const [checking, setChecking] = useState(Boolean(token));
+
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API_BASE}/api/me`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) throw new Error(data.error);
+        setUser(data.user);
+      })
+      .catch(() => {
+        localStorage.removeItem("lgport_token");
+        setToken("");
+      })
+      .finally(() => setChecking(false));
+  }, [token]);
+
+  function handleLogin(nextUser, nextToken) {
+    setUser(nextUser);
+    setToken(nextToken);
+  }
+
+  function logout() {
+    localStorage.removeItem("lgport_token");
+    setUser(null);
+    setToken("");
+  }
+
+  if (checking) return <main className="login-shell"><section className="login-panel"><h1>Checking access</h1></section></main>;
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
+  return <Dashboard user={user} token={token} onLogout={logout} />;
 }
 
 createRoot(document.getElementById("root")).render(<App />);
