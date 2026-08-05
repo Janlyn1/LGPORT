@@ -623,7 +623,7 @@ function App() {
             </article>
             <article>
               <h2>Data Provider</h2>
-              <p>Approved TikTok Research API credentials required for latest video and account refresh.</p>
+              <p>KeyAPI key or approved TikTok Research API credentials required for latest account refresh.</p>
               <button onClick={refreshProvider} type="button">Run Refresh</button>
             </article>
             <article>

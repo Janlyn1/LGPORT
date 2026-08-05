@@ -45,6 +45,17 @@ const tiktokResearchMaxFollowers = Math.max(
   tiktokResearchMinFollowers,
   Number(process.env.TIKTOK_RESEARCH_MAX_FOLLOWERS || 20000),
 );
+const keyApiBaseUrl = (process.env.KEYAPI_BASE_URL || "https://api.keyapi.ai").replace(/\/+$/, "");
+const keyApiKey = process.env.KEYAPI_API_KEY || process.env.CREATOR_DATA_PROVIDER_API_KEY || "";
+const keyApiKeywords = (process.env.KEYAPI_KEYWORDS || tiktokResearchKeywords.join(","))
+  .split(",")
+  .map((item) => item.trim())
+  .filter(Boolean)
+  .slice(0, 20);
+const keyApiMaxTotal = Math.max(
+  20,
+  Math.min(Number(process.env.KEYAPI_MAX_TOTAL || tiktokResearchMaxTotal), 1000),
+);
 
 const allowedCategories = [
   "Beauty",
@@ -722,11 +733,173 @@ function tiktokResearchConfigured() {
   return Boolean(tiktokResearchClientKey && tiktokResearchClientSecret);
 }
 
+function keyApiConfigured() {
+  return Boolean(keyApiKey);
+}
+
 function dateStamp(date) {
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, "0");
   const day = String(date.getUTCDate()).padStart(2, "0");
   return `${year}${month}${day}`;
+}
+
+function numberFromAny(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return parseFollowers(value);
+}
+
+function firstValue(source, keys) {
+  for (const key of keys) {
+    const value = source?.[key];
+    if (value !== undefined && value !== null && clean(String(value))) return value;
+  }
+  return "";
+}
+
+function collectInfluencerLikeObjects(value, results = []) {
+  if (!value || results.length >= keyApiMaxTotal * 3) return results;
+  if (Array.isArray(value)) {
+    for (const item of value) collectInfluencerLikeObjects(item, results);
+    return results;
+  }
+  if (typeof value !== "object") return results;
+
+  const source = value.user_info || value.user || value.author || value.influencer || value;
+  const username = clean(
+    firstValue(source, ["unique_id", "username", "handle", "sec_uid", "user_name"]),
+  ).replace(/^@/, "");
+  const followers = numberFromAny(
+    firstValue(source, [
+      "total_followers_cnt",
+      "follower_count",
+      "followers",
+      "fans",
+      "fan_count",
+      "followerCount",
+    ]),
+  );
+  const name = firstValue(source, ["nick_name", "nickname", "display_name", "name"]);
+  if (username && (followers || name)) results.push(source);
+
+  for (const item of Object.values(value)) {
+    if (item && typeof item === "object") collectInfluencerLikeObjects(item, results);
+  }
+  return results;
+}
+
+async function keyApiGet(path, params = {}) {
+  const url = new URL(`${keyApiBaseUrl}${path}`);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") {
+      url.searchParams.set(key, String(value));
+    }
+  }
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${keyApiKey}` },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || (Number(payload.code) && Number(payload.code) !== 0)) {
+    throw new Error(tiktokErrorMessage(payload, payload.message || "KeyAPI request failed."));
+  }
+  return payload;
+}
+
+function creatorFromKeyApiInfluencer(input) {
+  const username = clean(
+    firstValue(input, ["unique_id", "username", "handle", "sec_uid", "user_name"]),
+  )
+    .replace(/^@/, "")
+    .toLowerCase();
+  const followerCount = numberFromAny(
+    firstValue(input, ["total_followers_cnt", "follower_count", "followers", "fans", "fan_count", "followerCount"]),
+  );
+  const followingCount = numberFromAny(
+    firstValue(input, ["total_following_cnt", "following_count", "following", "followingCount"]),
+  );
+  const likesCount = numberFromAny(
+    firstValue(input, ["total_likes_cnt", "total_digg_cnt", "likes_count", "digg_count", "likes", "likesCount"]),
+  );
+  const bio = clean(firstValue(input, ["signature", "bio", "bio_description", "description"]));
+  const category = detectCategory([bio, firstValue(input, ["category", "most_category_product"])].join(" "));
+  const region = clean(firstValue(input, ["region", "region_code", "country"])).toUpperCase();
+
+  return normalizeCreator({
+    creatorId: clean(firstValue(input, ["user_id", "uid", "id"])) || `KEYAPI-${username}`,
+    name: clean(firstValue(input, ["nick_name", "nickname", "display_name", "name"])) || username,
+    username,
+    tiktokLink: username ? `https://www.tiktok.com/@${username}` : "",
+    followers: formatFollowers(followerCount),
+    followerCount,
+    following: followingCount ? formatFollowers(followingCount) : "",
+    followingCount,
+    likes: likesCount ? formatFollowers(likesCount) : "",
+    likesCount,
+    category,
+    email: clean(firstValue(input, ["contact_email", "email", "public_email"])),
+    location: region === "US" ? "" : clean(firstValue(input, ["location"])),
+    city: "",
+    state: "",
+    country: "United States",
+    bio,
+    website: clean(firstValue(input, ["bio_url", "website", "url"])),
+    instagram: "",
+    youtube: "",
+    profilePicture: clean(firstValue(input, ["avatar", "avatar_url", "profile_pic_url"])),
+    lastUpdated: new Date().toISOString().slice(0, 10),
+    confidence: 92,
+  });
+}
+
+async function refreshKeyApiCreators() {
+  if (!keyApiConfigured()) {
+    throw new Error("KEYAPI_API_KEY is not configured.");
+  }
+
+  const creatorsByKey = new Map();
+  let searchedPages = 0;
+  for (const keyword of keyApiKeywords) {
+    let offset = 0;
+    let page = 0;
+    let keepGoing = true;
+    while (keepGoing && page < 3 && creatorsByKey.size < keyApiMaxTotal) {
+      page += 1;
+      searchedPages += 1;
+      const payload = await keyApiGet("/v1/tiktok/influencer/search", {
+        keyword,
+        region: "US",
+        offset,
+      });
+      const objects = collectInfluencerLikeObjects(payload.data || payload);
+      for (const object of objects) {
+        const creator = creatorFromKeyApiInfluencer(object);
+        const region = clean(firstValue(object, ["region", "region_code", "country"])).toUpperCase();
+        if (
+          creator.username &&
+          (!region || region === "US" || region === "USA" || region === "UNITED STATES") &&
+          creator.followerCount >= tiktokResearchMinFollowers &&
+          creator.followerCount <= tiktokResearchMaxFollowers &&
+          allowedCategories.includes(creator.category)
+        ) {
+          creatorsByKey.set(duplicateKey(creator), creator);
+        }
+      }
+      const nextCursor = Number(payload.data?.cursor || payload.cursor || 0);
+      keepGoing = nextCursor && nextCursor !== offset && objects.length > 0;
+      offset = nextCursor || offset + objects.length;
+    }
+  }
+
+  memory.providerCreators = [...creatorsByKey.values()].slice(0, keyApiMaxTotal);
+  memory.providerVideosScanned = searchedPages;
+  memory.providerUpdatedAt = new Date().toISOString();
+  const sheetSynced = await replaceAllCreators(memory.providerCreators);
+  return {
+    creators: memory.providerCreators,
+    searchedPages,
+    updatedAt: memory.providerUpdatedAt,
+    sheetSynced,
+  };
 }
 
 function tiktokErrorMessage(payload, fallback) {
@@ -1184,8 +1357,8 @@ app.get("/api/health", (_request, response) => {
     spreadsheetId,
     googleLoginConfigured: Boolean(googleClientId),
     publicAccess,
-    providerConfigured: tiktokResearchConfigured(),
-    provider: "tiktok-research-api",
+    providerConfigured: keyApiConfigured() || tiktokResearchConfigured(),
+    provider: keyApiConfigured() ? "keyapi" : "tiktok-research-api",
     providerUpdatedAt: memory.providerUpdatedAt,
   });
 });
@@ -1231,9 +1404,13 @@ app.get("/api/creators", requireUser, requireAdmin, async (request, response) =>
       states: [...new Set(all.map((creator) => creator.state).filter(Boolean))].sort(),
       statuses: savedStatuses,
       source: memory.providerCreators.length
-        ? "tiktok-research-api"
-        : tiktokResearchConfigured()
-          ? "tiktok-ready"
+        ? keyApiConfigured()
+          ? "keyapi"
+          : "tiktok-research-api"
+        : keyApiConfigured()
+          ? "keyapi-ready"
+          : tiktokResearchConfigured()
+            ? "tiktok-ready"
           : "starter-dataset",
       providerUpdatedAt: memory.providerUpdatedAt,
     });
@@ -1325,28 +1502,38 @@ app.get("/api/admin", requireUser, requireAdmin, async (request, response) => {
 
 app.post("/api/provider/refresh", requireUser, requireAdmin, async (request, response) => {
   try {
-    if (!tiktokResearchConfigured()) {
+    if (!keyApiConfigured() && !tiktokResearchConfigured()) {
       response.status(400).json({
-        error: "Add TIKTOK_RESEARCH_CLIENT_KEY and TIKTOK_RESEARCH_CLIENT_SECRET in Render env first.",
-        requiredEnv: ["TIKTOK_RESEARCH_CLIENT_KEY", "TIKTOK_RESEARCH_CLIENT_SECRET"],
+        error:
+          "Add KEYAPI_API_KEY in Render env, or add TIKTOK_RESEARCH_CLIENT_KEY and TIKTOK_RESEARCH_CLIENT_SECRET.",
+        requiredEnv: ["KEYAPI_API_KEY"],
       });
       return;
     }
-    const result = await refreshTikTokResearchCreators();
+    const provider = keyApiConfigured() ? "keyapi" : "tiktok-research-api";
+    const result = keyApiConfigured()
+      ? await refreshKeyApiCreators()
+      : await refreshTikTokResearchCreators();
     logActivity(
       request.user.email,
-      "TikTok Refresh",
-      `Scanned ${result.videosScanned} videos and loaded ${result.creators.length} creators`,
+      provider === "keyapi" ? "KeyAPI Refresh" : "TikTok Refresh",
+      provider === "keyapi"
+        ? `Searched ${result.searchedPages} KeyAPI pages and loaded ${result.creators.length} creators`
+        : `Scanned ${result.videosScanned} videos and loaded ${result.creators.length} creators`,
     );
     response.json({
       ok: true,
-      mode: "tiktok-research-api",
+      mode: provider,
       creatorsImported: result.creators.length,
-      videosScanned: result.videosScanned,
+      videosScanned: result.videosScanned || 0,
+      searchedPages: result.searchedPages || 0,
       usernamesScanned: result.usernamesScanned,
       updatedAt: result.updatedAt,
       sheetSynced: result.sheetSynced,
-      note: `TikTok refresh complete: ${result.creators.length} creators from ${result.videosScanned} recent US videos.`,
+      note:
+        provider === "keyapi"
+          ? `KeyAPI refresh complete: ${result.creators.length} creators found.`
+          : `TikTok refresh complete: ${result.creators.length} creators from ${result.videosScanned} recent US videos.`,
     });
   } catch (error) {
     response.status(502).json({ error: error.message });
