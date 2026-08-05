@@ -31,6 +31,16 @@ const tabs = [
   ["skipped", "Skipped Creators"],
   ["settings", "Settings"],
 ];
+const manualSearchKeywords = [
+  "beauty creator",
+  "skincare creator",
+  "makeup creator",
+  "haircare creator",
+  "self care creator",
+  "personal care creator",
+  "lifestyle creator",
+  "beauty products",
+];
 
 const starterCreators = [
   ["BL001", "Beauty Lifestyle Lead 01", "beautylifestylelead01", "18.4K", 18400, "612", 612, "132K", 132000, "Beauty", "beautylead01@example.com", "Los Angeles, CA", "California", "Beauty creator sharing skincare finds, daily routines, and lifestyle favorites.", "https://example.com/beautylead01", "https://instagram.com/beautylead01"],
@@ -97,6 +107,53 @@ function initials(name = "") {
 
 function duplicateKey(creator) {
   return `${creator.username || ""}|${creator.tiktokLink || ""}`.toLowerCase();
+}
+
+function usernameFromManualText(text = "") {
+  const urlMatch = String(text).match(/tiktok\.com\/@([a-zA-Z0-9._-]+)/i);
+  if (urlMatch) return urlMatch[1].toLowerCase();
+  const atMatch = String(text).match(/@([a-zA-Z0-9._-]+)/);
+  if (atMatch) return atMatch[1].toLowerCase();
+  const firstToken = String(text).split(/[,\t|]/)[0].trim().replace(/^@/, "");
+  return /^[a-zA-Z0-9._-]{2,}$/.test(firstToken) ? firstToken.toLowerCase() : "";
+}
+
+function parseManualFollowers(text = "") {
+  const match = String(text).match(/(\d+(?:\.\d+)?)\s*([kKmM])?/);
+  if (!match) return 0;
+  const value = Number(match[1]);
+  const suffix = (match[2] || "").toLowerCase();
+  if (suffix === "m") return Math.round(value * 1000000);
+  if (suffix === "k") return Math.round(value * 1000);
+  return Math.round(value);
+}
+
+function parseManualCreators(text = "") {
+  return String(text)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split(/[,\t|]/).map((part) => part.trim()).filter(Boolean);
+      const username = usernameFromManualText(line);
+      const followerCount = parseManualFollowers(parts.find((part) => parseManualFollowers(part)) || line);
+      if (!username) return null;
+      return normalizeCreator({
+        creatorId: `MANUAL-${username}`,
+        name: username,
+        username,
+        tiktokLink: `https://www.tiktok.com/@${username}`,
+        followers: followerCount ? compactNumber(followerCount) : "",
+        followerCount,
+        category: categories.includes(parts[2]) ? parts[2] : "Beauty",
+        location: parts[3] || "",
+        state: parts[3] || "",
+        bio: parts.slice(2).join(" ") || line,
+        email: line.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || "",
+        lastUpdated: new Date().toISOString().slice(0, 10),
+      });
+    })
+    .filter(Boolean);
 }
 
 function dateLabel(value) {
@@ -306,6 +363,7 @@ function App() {
   const [admin, setAdmin] = useState(null);
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
+  const [importText, setImportText] = useState("");
   const [filters, setFilters] = useState({
     search: "",
     minFollowers: "2000",
@@ -470,6 +528,37 @@ function App() {
     }
   }
 
+  async function importManualCreators() {
+    setNotice("");
+    const parsed = parseManualCreators(importText);
+    if (!parsed.length) {
+      setNotice("Paste one creator per line, like @username, 12K, skincare, California.");
+      return;
+    }
+    if (canUseApi()) {
+      try {
+        const data = await api("/api/creators/import", {
+          method: "POST",
+          body: JSON.stringify({ text: importText }),
+        });
+        setNotice(data.note || `Imported ${data.importedCount || 0} creators.`);
+        setImportText("");
+        await loadRemote();
+        return;
+      } catch (error) {
+        setNotice(error.message);
+        return;
+      }
+    }
+    setAllCreators((current) => {
+      const existing = new Set(current.map(duplicateKey));
+      const fresh = parsed.filter((creator) => !existing.has(duplicateKey(creator)));
+      return [...fresh, ...current];
+    });
+    setImportText("");
+    setNotice(`Imported ${parsed.length} creators locally. Connect backend URL to sync Google Sheets.`);
+  }
+
   function logout() {
     localStorage.removeItem("lgport_token");
     setToken("");
@@ -631,6 +720,30 @@ function App() {
               {(admin?.logs || []).slice(0, 6).map((log) => (
                 <span className="log-line" key={`${log.createdAt}-${log.action}`}>{log.action} - {dateLabel(log.createdAt)}</span>
               ))}
+            </article>
+            <article className="settings-wide">
+              <h2>TikTok Manual Search</h2>
+              <p>Open TikTok searches, copy matching creators with follower counts, then paste one per line.</p>
+              <div className="search-link-row">
+                {manualSearchKeywords.map((keyword) => (
+                  <a
+                    className="button-link secondary"
+                    href={`https://www.tiktok.com/search/user?q=${encodeURIComponent(keyword)}`}
+                    key={keyword}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    {keyword}
+                  </a>
+                ))}
+              </div>
+              <textarea
+                className="import-box"
+                onChange={(event) => setImportText(event.target.value)}
+                placeholder={"@glowcreator, 12.4K, Skincare, California\nhttps://www.tiktok.com/@beautyname, 8K, Beauty, Texas"}
+                value={importText}
+              />
+              <button onClick={importManualCreators} type="button">Import Pasted Creators</button>
             </article>
           </section>
         ) : null}

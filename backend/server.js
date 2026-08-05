@@ -441,6 +441,7 @@ const memory = {
   savedByEmail: new Map(),
   skippedByEmail: new Map(),
   logsByEmail: new Map(),
+  manualCreators: [],
   providerCreators: [],
   providerVideosScanned: 0,
   providerUpdatedAt: "",
@@ -1444,6 +1445,84 @@ function creatorToSheetRow(creator, userEmail, status = "Saved") {
   ];
 }
 
+function usernameFromManualText(text = "") {
+  const value = String(text);
+  const urlMatch = value.match(/tiktok\.com\/@([a-zA-Z0-9._-]+)/i);
+  if (urlMatch) return urlMatch[1].toLowerCase();
+  const atMatch = value.match(/@([a-zA-Z0-9._-]+)/);
+  if (atMatch) return atMatch[1].toLowerCase();
+  const firstToken = clean(value.split(/[,\t|]/)[0]).replace(/^@/, "");
+  return /^[a-zA-Z0-9._-]{2,}$/.test(firstToken) ? firstToken.toLowerCase() : "";
+}
+
+function parseManualCreatorLine(line = "") {
+  const raw = clean(line);
+  if (!raw || raw.startsWith("#")) return null;
+  const parts = raw.split(/[,\t|]/).map(clean).filter(Boolean);
+  const username = usernameFromManualText(raw);
+  if (!username) return null;
+  const followerText = parts.find((part) => parseFollowers(part) > 0) || raw;
+  const followerCount = parseFollowers(followerText);
+  const bio = parts.slice(2).join(" ") || raw;
+  const category = allowedCategories.includes(parts[2]) ? parts[2] : detectCategory(raw);
+  const location = extractBioLocation(raw);
+  const email = extractEmail(raw);
+  return normalizeCreator({
+    creatorId: `MANUAL-${username}`,
+    name: username,
+    username,
+    tiktokLink: `https://www.tiktok.com/@${username}`,
+    followers: followerCount ? formatFollowers(followerCount) : "",
+    followerCount,
+    category,
+    email,
+    location: location.location,
+    state: location.state,
+    country: "United States",
+    bio,
+    lastUpdated: new Date().toISOString().slice(0, 10),
+    confidence: followerCount ? 80 : 45,
+  });
+}
+
+function parseManualCreators(rawText = "") {
+  const seen = new Set();
+  const creators = [];
+  for (const line of String(rawText).split(/\r?\n/)) {
+    const creator = parseManualCreatorLine(line);
+    if (!creator) continue;
+    const key = duplicateKey(creator);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    creators.push(creator);
+  }
+  return creators;
+}
+
+async function appendAllCreators(creators) {
+  if (!creators.length) return { imported: [], duplicates: 0, sheetSynced: false };
+  const existing = await allRawCreators();
+  const existingKeys = new Set(existing.map(duplicateKey));
+  const imported = creators.filter((creator) => !existingKeys.has(duplicateKey(creator)));
+  const duplicates = creators.length - imported.length;
+
+  if (!imported.length) return { imported, duplicates, sheetSynced: sheetsEnabled() };
+  if (sheetsEnabled()) {
+    await ensureSheet("All Creators", creatorHeaders);
+    const sheets = await sheetsClient();
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: "'All Creators'!A:R",
+      valueInputOption: "USER_ENTERED",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: { values: imported.map(creatorToAllCreatorsRow) },
+    });
+  } else {
+    memory.manualCreators.push(...imported);
+  }
+  return { imported, duplicates, sheetSynced: sheetsEnabled() };
+}
+
 function mapSheetCreators(rows) {
   const headerIndex = rows.findIndex((row) => clean(row[0]).toLowerCase() === "creator id");
   const dataRows = rows.slice(headerIndex >= 0 ? headerIndex + 1 : 1);
@@ -1541,8 +1620,8 @@ async function authorizeEmail(email) {
 }
 
 async function allRawCreators() {
-  if (memory.providerCreators.length) return memory.providerCreators;
-  if (!sheetsEnabled()) return sampleCreators;
+  if (memory.providerCreators.length) return [...memory.providerCreators, ...memory.manualCreators];
+  if (!sheetsEnabled()) return [...sampleCreators, ...memory.manualCreators];
   const rows = await values("'All Creators'!A:R");
   const mapped = mapSheetCreators(rows);
   return mapped.length ? mapped : sampleCreators;
@@ -1709,6 +1788,34 @@ app.get("/api/creators", requireUser, requireAdmin, async (request, response) =>
             ? "tiktok-ready"
           : "starter-dataset",
       providerUpdatedAt: memory.providerUpdatedAt,
+    });
+  } catch (error) {
+    response.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/creators/import", requireUser, requireAdmin, async (request, response) => {
+  try {
+    const creators = parseManualCreators(request.body?.text || "");
+    if (!creators.length) {
+      response.status(400).json({
+        error: "Paste one creator per line, like @username, 12K, skincare, California.",
+      });
+      return;
+    }
+    const result = await appendAllCreators(creators);
+    logActivity(
+      request.user.email,
+      "Manual TikTok Import",
+      `Imported ${result.imported.length} creators, skipped ${result.duplicates} duplicates`,
+    );
+    response.json({
+      ok: true,
+      imported: result.imported,
+      importedCount: result.imported.length,
+      duplicateCount: result.duplicates,
+      sheetSynced: result.sheetSynced,
+      note: `Imported ${result.imported.length} creators. ${result.duplicates} duplicate(s) skipped.`,
     });
   } catch (error) {
     response.status(500).json({ error: error.message });
