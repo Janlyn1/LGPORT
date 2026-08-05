@@ -9,6 +9,29 @@ const PUBLIC_USER = {
   role: "Admin",
 };
 const savedStatuses = ["Saved", "Already Messaged", "Approved", "Not Approved", "Rejected"];
+const fallbackCreators = [
+  ["BL001", "Beauty Lifestyle Lead 01", "18.4K", 18400, "https://www.tiktok.com/search?q=beauty%20products%20lifestyle%20creator", "Beauty Products"],
+  ["BL002", "Glow Routine Lead 02", "16.8K", 16800, "https://www.tiktok.com/search?q=skincare%20routine%20creator", "Beauty & Skincare"],
+  ["BL003", "Makeup Finds Lead 03", "14.2K", 14200, "https://www.tiktok.com/search?q=makeup%20finds%20creator", "Makeup Reviews"],
+  ["BL004", "Self Care Lead 04", "12.6K", 12600, "https://www.tiktok.com/search?q=self%20care%20beauty%20creator", "Self Care"],
+  ["BL005", "Lifestyle Beauty Lead 05", "10.9K", 10900, "https://www.tiktok.com/search?q=lifestyle%20beauty%20creator", "Lifestyle"],
+  ["BL006", "Affordable Beauty Lead 06", "9.7K", 9700, "https://www.tiktok.com/search?q=affordable%20beauty%20products%20creator", "Beauty Products"],
+  ["BL007", "GRWM Beauty Lead 07", "8.1K", 8100, "https://www.tiktok.com/search?q=grwm%20beauty%20creator", "Lifestyle"],
+  ["BL008", "Skincare Finds Lead 08", "6.8K", 6800, "https://www.tiktok.com/search?q=skincare%20finds%20creator", "Beauty & Skincare"],
+  ["BL009", "Mini Reviews Lead 09", "5.3K", 5300, "https://www.tiktok.com/search?q=beauty%20product%20review%20creator", "Makeup Reviews"],
+  ["BL010", "Everyday Glow Lead 10", "4.4K", 4400, "https://www.tiktok.com/search?q=everyday%20beauty%20routine%20creator", "Self Care"],
+  ["BL011", "New Beauty Lead 11", "3.2K", 3200, "https://www.tiktok.com/search?q=new%20beauty%20creator%20tiktok", "Beauty Products"],
+  ["BL012", "Starter Lifestyle Lead 12", "2.4K", 2400, "https://www.tiktok.com/search?q=small%20lifestyle%20beauty%20creator", "Lifestyle"],
+].map(([creatorId, name, followers, followerCount, tiktokLink, category]) => ({
+  creatorId,
+  name,
+  followers,
+  followerCount,
+  tiktokLink,
+  category,
+  country: "United States",
+  lastUpdated: "2026-08-06",
+}));
 
 function compactNumber(value) {
   return Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value || 0);
@@ -36,6 +59,22 @@ function dateLabel(value) {
   return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(
     new Date(value),
   );
+}
+
+function filterCreators(list, filters) {
+  const searchText = (filters.search || "").trim().toLowerCase();
+  const min = Number.parseInt(filters.minFollowers || "0", 10);
+  const max = Number.parseInt(filters.maxFollowers || "0", 10);
+  return list.filter((creator) => {
+    const haystack = [creator.name, creator.category, creator.country, creator.tiktokLink]
+      .join(" ")
+      .toLowerCase();
+    const matchesSearch = !searchText || haystack.includes(searchText);
+    const matchesMin = !min || creator.followerCount >= min;
+    const matchesMax = !max || creator.followerCount <= max;
+    const matchesCategory = filters.category === "All" || creator.category === filters.category;
+    return matchesSearch && matchesMin && matchesMax && matchesCategory;
+  });
 }
 
 function Dashboard({ user, token }) {
@@ -72,9 +111,15 @@ function Dashboard({ user, token }) {
       maxFollowers,
       category,
     });
-    const data = await api(`/api/creators?${params.toString()}`);
-    setCreators(data.creators || []);
-    setCategories(["All", ...(data.categories || [])]);
+    try {
+      const data = await api(`/api/creators?${params.toString()}`);
+      setCreators(data.creators || []);
+      setCategories(["All", ...(data.categories || [])]);
+    } catch (error) {
+      setCreators(filterCreators(fallbackCreators, { search, minFollowers, maxFollowers, category }));
+      setCategories(["All", ...new Set(fallbackCreators.map((creator) => creator.category))]);
+      setNotice("Showing starter creator leads. Backend sync is not reachable yet.");
+    }
   }
 
   async function loadSaved() {
@@ -92,7 +137,11 @@ function Dashboard({ user, token }) {
     setLoading(true);
     setNotice("");
     try {
-      await Promise.all([loadCreators(), loadSaved(), loadAdmin()]);
+      await loadCreators();
+      const secondaryLoads = await Promise.allSettled([loadSaved(), loadAdmin()]);
+      if (secondaryLoads.some((result) => result.status === "rejected") && !notice) {
+        setNotice("Creators loaded. Saved/admin sync needs the backend connection.");
+      }
     } catch (error) {
       setNotice(error.message);
     } finally {
